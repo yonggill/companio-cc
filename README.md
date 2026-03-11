@@ -80,8 +80,8 @@ Python 3.11 이상이 설치되어 있어야 합니다. 터미널(맥: Terminal,
 
 ```bash
 # 1. 저장소 다운로드
-git clone https://github.com/yonggill/companio.git
-cd companio
+git clone https://github.com/yonggill/companio-cc.git
+cd companio-cc
 
 # 2. 가상환경 생성 및 활성화
 python3 -m venv .venv
@@ -92,20 +92,20 @@ source .venv/bin/activate        # macOS/Linux
 pip install -e .
 
 # 4. 초기 설정 (config.json + 워크스페이스 생성)
-companio onboard
+companiocc onboard
 
 # 5. API 키 입력
-#    ~/.companio/config.json을 열어 providers 섹션에 API 키를 입력합니다.
+#    ~/.companiocc/config.json을 열어 providers 섹션에 API 키를 입력합니다.
 #    또는 onboard 과정에서 대화형으로 입력할 수 있습니다.
 
 # 6. 테스트
-companio agent -m "안녕하세요!"
+companiocc agent -m "안녕하세요!"
 ```
 
 #### Telegram 봇으로 사용하기
 
 1. [@BotFather](https://t.me/BotFather)에서 봇 토큰을 발급받습니다.
-2. `~/.companio/config.json`에서 Telegram을 설정합니다:
+2. `~/.companiocc/config.json`에서 Telegram을 설정합니다:
 
 ```json
 {
@@ -122,38 +122,38 @@ companio agent -m "안녕하세요!"
 3. 게이트웨이를 시작합니다:
 
 ```bash
-companio gateway
+companiocc gateway
 ```
 
 ### 개발자용
 
 ```bash
 # 1. 저장소 클론 및 개발 의존성 설치
-git clone https://github.com/yonggill/companio.git
-cd companio
+git clone https://github.com/yonggill/companio-cc.git
+cd companio-cc
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
 # 2. 초기 설정
-companio onboard
+companiocc onboard
 
 # 3. API 키 설정
-#    ~/.companio/config.json 또는 환경 변수로 설정
+#    ~/.companiocc/config.json 또는 환경 변수로 설정
 
 # 4. 테스트 실행
 pytest
 
 # 5. 린팅 & 타입 체크
 ruff check .
-mypy companio
+mypy companiocc
 ```
 
 #### 프로젝트 구조
 
 ```
-companio/
-├── companio/
+companio-cc/
+├── companiocc/
 │   ├── agent/              # ReAct 에이전트 루프, 컨텍스트, 메모리
 │   │   └── tools/          # 내장 도구 (파일, 쉘, 웹, MCP 등)
 │   ├── bus/                # 메시지 버스 (이벤트, 큐)
@@ -177,14 +177,14 @@ companio/
 ### 1. 초기 설정
 
 ```bash
-companio onboard
+companiocc onboard
 ```
 
-`~/.companio/config.json`과 워크스페이스 디렉토리(`~/.companio/workspace`)가 생성됩니다.
+`~/.companiocc/config.json`과 워크스페이스 디렉토리(`~/.companiocc/workspace`)가 생성됩니다.
 
 ### 2. API 키 설정
 
-`~/.companio/config.json`을 열어 사용할 LLM 프로바이더의 API 키를 입력합니다:
+`~/.companiocc/config.json`을 열어 사용할 LLM 프로바이더의 API 키를 입력합니다:
 
 ```json
 {
@@ -199,7 +199,7 @@ companio onboard
 또는 `.env` 파일을 사용할 수도 있습니다:
 
 ```bash
-cp companio/templates/.env.example ~/.companio/.env
+cp companiocc/templates/.env.example ~/.companiocc/.env
 # 편집기로 API 키 입력
 ```
 
@@ -207,10 +207,10 @@ cp companio/templates/.env.example ~/.companio/.env
 
 ```bash
 # 단일 메시지
-companio agent -m "안녕하세요!"
+companiocc agent -m "안녕하세요!"
 
 # 대화형 모드
-companio agent
+companiocc agent
 ```
 
 ### 4. 게이트웨이 실행
@@ -218,16 +218,16 @@ companio agent
 게이트웨이는 Telegram 봇 + 크론 스케줄러 + 하트비트를 한꺼번에 시작합니다:
 
 ```bash
-companio gateway
+companiocc gateway
 ```
 
 ---
 
 ## 설정 파일
 
-설정 파일 위치: `~/.companio/config.json`
+설정 파일 위치: `~/.companiocc/config.json`
 
-샘플 설정은 `companio/templates/config.example.json`을 참고하세요.
+샘플 설정은 `companiocc/templates/config.example.json`을 참고하세요.
 
 ### 설정 항목 레퍼런스
 
@@ -235,7 +235,7 @@ companio gateway
 
 | 항목 | 설명 | 기본값 |
 |------|------|--------|
-| `workspace` | 워크스페이스 경로 | `~/.companio/workspace` |
+| `workspace` | 워크스페이스 경로 | `~/.companiocc/workspace` |
 | `model` | LLM 모델 | `anthropic/claude-opus-4-5` |
 | `provider` | 프로바이더 선택 (`auto`이면 모델명에서 자동 감지) | `auto` |
 | `maxTokens` | 최대 응답 토큰 수 | `8192` |
@@ -303,24 +303,24 @@ export COMPANIO_AGENTS__DEFAULTS__TEMPERATURE=0.5
 ## CLI 명령어
 
 ```
-companio onboard          # 초기 설정 (config, workspace 생성)
-companio agent -m "..."   # 단일 메시지 전송
-companio agent            # 대화형 모드
-companio gateway          # 게이트웨이 시작 (Telegram + 크론 + 하트비트)
-companio channels status  # 채널 상태 확인
-companio status           # 전체 상태 확인
-companio --version        # 버전 확인
+companiocc onboard          # 초기 설정 (config, workspace 생성)
+companiocc agent -m "..."   # 단일 메시지 전송
+companiocc agent            # 대화형 모드
+companiocc gateway          # 게이트웨이 시작 (Telegram + 크론 + 하트비트)
+companiocc channels status  # 채널 상태 확인
+companiocc status           # 전체 상태 확인
+companiocc --version        # 버전 확인
 ```
 
 ### 주요 옵션
 
 ```
-companio agent --config /path/to/config.json   # 설정 파일 지정
-companio agent --workspace /path/to/workspace  # 워크스페이스 지정
-companio agent --no-markdown                   # 마크다운 렌더링 비활성화
-companio agent --logs                          # 런타임 로그 출력
-companio gateway --port 8080                   # 게이트웨이 포트 지정
-companio gateway --verbose                     # 상세 로그 출력
+companiocc agent --config /path/to/config.json   # 설정 파일 지정
+companiocc agent --workspace /path/to/workspace  # 워크스페이스 지정
+companiocc agent --no-markdown                   # 마크다운 렌더링 비활성화
+companiocc agent --logs                          # 런타임 로그 출력
+companiocc gateway --port 8080                   # 게이트웨이 포트 지정
+companiocc gateway --verbose                     # 상세 로그 출력
 ```
 
 ### 채팅 내 특수 명령어
@@ -416,7 +416,7 @@ companio gateway --verbose                     # 상세 로그 출력
 워크스페이스의 `skills/` 디렉토리에 스킬 폴더를 만들면 자동으로 인식됩니다:
 
 ```
-~/.companio/workspace/skills/
+~/.companiocc/workspace/skills/
 └── my-skill/
     └── SKILL.md
 ```
@@ -429,7 +429,7 @@ name: my-skill
 description: 스킬에 대한 간단한 설명.
 always: false
 metadata:
-  companio:
+  companiocc:
     requires:
       bins: ["some-cli"]
       env: ["SOME_API_KEY"]
@@ -444,8 +444,8 @@ metadata:
 | `name` | 스킬 고유 이름 |
 | `description` | 스킬 목록에 표시되는 설명 |
 | `always` | `true`이면 항상 컨텍스트에 포함 |
-| `metadata.companio.requires.bins` | 필요한 CLI 바이너리 목록 |
-| `metadata.companio.requires.env` | 필요한 환경 변수 목록 |
+| `metadata.companiocc.requires.bins` | 필요한 CLI 바이너리 목록 |
+| `metadata.companiocc.requires.env` | 필요한 환경 변수 목록 |
 
 ---
 
@@ -517,7 +517,7 @@ metadata:
 - **태스크**: 에이전트가 작업 설명을 받아 자율 실행
 - **1회성**: 실행 후 자동 삭제 (`delete_after_run: true`)
 
-저장소: `~/.companio/workspace/cron/jobs.json`
+저장소: `~/.companiocc/workspace/cron/jobs.json`
 
 ### 서브에이전트
 
@@ -529,7 +529,7 @@ metadata:
 
 ### 세션 관리
 
-- SQLite 기반 (`companio.db`), WAL 모드
+- SQLite 기반 (`companiocc.db`), WAL 모드
 - 세션별 원자적 쓰기 + 잠금
 - 재시작해도 대화 이력 유지
 - 메모리 통합 지점 추적
@@ -554,7 +554,7 @@ pytest
 ruff check .
 
 # 타입 체크
-mypy companio
+mypy companiocc
 ```
 
 ---

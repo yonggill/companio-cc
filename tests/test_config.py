@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from companio.config.schema import Config, TelegramConfig
+from companiocc.config.schema import Config, TelegramConfig
 
 
 class TestConfigDefaults:
@@ -31,11 +31,11 @@ class TestConfigDefaults:
 
     def test_env_prefix(self):
         config = Config()
-        assert config.model_config.get("env_prefix") == "COMPANIO_"
+        assert config.model_config.get("env_prefix") == "COMPANIOCC_"
 
     def test_workspace_path_uses_companio(self):
         config = Config()
-        assert ".companio" in config.agents.defaults.workspace
+        assert ".companiocc" in config.agents.defaults.workspace
         assert ".nanobot" not in config.agents.defaults.workspace
 
     def test_gateway_defaults(self):
@@ -56,7 +56,7 @@ class TestConfigExampleConsistency:
 
     @pytest.fixture()
     def example_config(self) -> dict:
-        path = Path(__file__).resolve().parent.parent / "companio" / "templates" / "config.example.json"
+        path = Path(__file__).resolve().parent.parent / "companiocc" / "templates" / "config.example.json"
         with open(path, encoding="utf-8") as f:
             return json.load(f)
 
@@ -79,13 +79,13 @@ class TestConfigLoader:
     """Verify loader helpers."""
 
     def test_load_dotenv_does_not_crash_on_missing(self, tmp_path):
-        from companio.config.loader import load_dotenv_if_exists
+        from companiocc.config.loader import load_dotenv_if_exists
 
         # Should silently do nothing when .env is absent
         load_dotenv_if_exists(tmp_path)
 
     def test_load_config_from_nonexistent_path(self, tmp_path):
-        from companio.config.loader import load_config
+        from companiocc.config.loader import load_config
 
         config = load_config(tmp_path / "does_not_exist.json")
         assert config.agents.defaults.memory_window == 200

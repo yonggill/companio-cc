@@ -1,0 +1,240 @@
+"""Agent loop: Claude CLI subprocess delegation."""
+
+from __future__ import annotations
+
+import asyncio
+from collections import defaultdict
+from datetime import datetime
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from loguru import logger
+
+from companiocc.bus import InboundMessage, MessageBus, OutboundMessage
+from companiocc.core.claude_cli import ClaudeCLI
+from companiocc.core.context import ContextBuilder
+from companiocc.core.memory import MemoryStore
+from companiocc.helpers import filter_secrets
+from companiocc.session import Session, SessionManager
+from companiocc.tools.message import MessageSender
+
+if TYPE_CHECKING:
+    from companiocc.cron import CronService
+
+
+class AgentLoop:
+    """Delegates processing to Claude CLI subprocess."""
+
+    def __init__(
+        self,
+        bus: MessageBus,
+        claude: ClaudeCLI,
+        workspace: Path,
+        memory_window: int = 200,
+        cron_service: CronService | None = None,
+        session_manager: SessionManager | None = None,
+    ):
+        self.bus = bus
+        self.claude = claude
+        self.workspace = workspace
+        self.memory_window = memory_window
+        self.cron_service = cron_service
+        self.context = ContextBuilder(workspace)
+        self._session_manager = session_manager or SessionManager(workspace)
+        self.message_sender = MessageSender(send_callback=bus.publish_outbound)
+        self._running = False
+        self._active_tasks: dict[str, list[asyncio.Task]] = {}
+        self._session_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+        self._consolidating: set[str] = set()
+        self._consolidation_tasks: set[asyncio.Task] = set()
+
+    async def run(self) -> None:
+        """Main loop - consume messages from bus."""
+        self._running = True
+        await self._session_manager.initialize()
+        logger.info("Agent loop started")
+
+        try:
+            while self._running:
+                try:
+                    msg = await asyncio.wait_for(self.bus.consume_inbound(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    continue
+
+                if msg.content.strip().lower() == "/stop":
+                    await self._handle_stop(msg)
+                else:
+                    task = asyncio.create_task(self._dispatch(msg))
+                    self._active_tasks.setdefault(msg.session_key, []).append(task)
+                    task.add_done_callback(
+                        lambda t, k=msg.session_key: (
+                            self._active_tasks.get(k, [])
+                            and t in self._active_tasks.get(k, [])
+                            and self._active_tasks[k].remove(t)
+                        )
+                    )
+        finally:
+            await self._session_manager.close()
+
+    def stop(self) -> None:
+        self._running = False
+        logger.info("Agent loop stopping")
+
+    async def _handle_stop(self, msg: InboundMessage) -> None:
+        """Cancel active tasks for the session."""
+        tasks = self._active_tasks.pop(msg.session_key, [])
+        cancelled = sum(1 for t in tasks if not t.done() and t.cancel())
+        for t in tasks:
+            try:
+                await t
+            except (asyncio.CancelledError, Exception):
+                pass
+        content = f"Stopped {cancelled} task(s)." if cancelled else "No active task to stop."
+        await self.bus.publish_outbound(
+            OutboundMessage(channel=msg.channel, chat_id=msg.chat_id, content=content)
+        )
+
+    async def _dispatch(self, msg: InboundMessage) -> None:
+        """Process under per-session lock."""
+        async with self._session_locks[msg.session_key]:
+            try:
+                response = await self._process_message(msg)
+                if response is not None:
+                    await self.bus.publish_outbound(response)
+            except asyncio.CancelledError:
+                logger.info("Task cancelled for session {}", msg.session_key)
+                raise
+            except Exception:
+                logger.exception("Error processing message for session {}", msg.session_key)
+                await self.bus.publish_outbound(
+                    OutboundMessage(
+                        channel=msg.channel, chat_id=msg.chat_id,
+                        content="Sorry, I encountered an error.",
+                    )
+                )
+
+    async def _process_message(self, msg: InboundMessage) -> OutboundMessage | None:
+        """Process a single message via Claude CLI."""
+        preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
+        logger.info("Processing from {}:{}: {}", msg.channel, msg.sender_id, preview)
+
+        key = msg.session_key
+        session = await self._session_manager.get_or_create(key)
+
+        # Slash commands
+        cmd = msg.content.strip().lower()
+        if cmd == "/new":
+            return await self._handle_new(msg, session)
+        if cmd == "/help":
+            return OutboundMessage(
+                channel=msg.channel, chat_id=msg.chat_id,
+                content="companiocc commands:\n/new \u2014 Start a new conversation\n/stop \u2014 Stop the current task\n/help \u2014 Show available commands",
+            )
+
+        # Background consolidation if needed
+        self._maybe_consolidate(session)
+
+        # Set message sender context
+        self.message_sender.set_context(msg.channel, msg.chat_id, msg.metadata.get("message_id"))
+        self.message_sender.start_turn()
+
+        # Send ACK to user (so they know we're processing)
+        await self.bus.publish_outbound(
+            OutboundMessage(
+                channel=msg.channel, chat_id=msg.chat_id,
+                content="\uc0dd\uac01 \uc911...",
+                metadata={"_progress": True},
+            )
+        )
+
+        # Build system prompt and history
+        system_prompt = self.context.build_system_prompt()
+        runtime_ctx = ContextBuilder._build_runtime_context(msg.channel, msg.chat_id)
+        history_text = ContextBuilder.format_history(session.messages[-self.memory_window:])
+
+        # Compose the full message for Claude CLI
+        full_message = f"{runtime_ctx}\n\n"
+        if history_text:
+            full_message += f"## Recent Conversation\n{history_text}\n\n"
+        full_message += f"## Current Message\n{msg.content}"
+
+        # Call Claude CLI
+        response = await self.claude.run(message=full_message, system_prompt=system_prompt)
+
+        # Apply secret filtering
+        result_text = filter_secrets(response.result) if response.result else ""
+
+        if response.is_error:
+            logger.error("Claude CLI error: {}", result_text[:200])
+            result_text = result_text or "Sorry, I encountered an error."
+
+        # Save turn
+        self._save_turn(session, msg.content, result_text)
+        await self._session_manager.save(session)
+
+        # If message_sender already sent in this turn, don't duplicate
+        if self.message_sender._sent_in_turn:
+            return None
+
+        return OutboundMessage(
+            channel=msg.channel, chat_id=msg.chat_id,
+            content=result_text,
+            metadata=msg.metadata or {},
+        )
+
+    async def _handle_new(self, msg: InboundMessage, session: Session) -> OutboundMessage:
+        """Handle /new command - archive and clear session."""
+        self._consolidating.add(session.session_id)
+        try:
+            if session.messages:
+                await self._consolidate_memory(session, archive_all=True)
+        except Exception:
+            logger.exception("/new archival failed for {}", session.session_id)
+            return OutboundMessage(
+                channel=msg.channel, chat_id=msg.chat_id,
+                content="Memory archival failed, session not cleared.",
+            )
+        finally:
+            self._consolidating.discard(session.session_id)
+
+        await self._session_manager.clear(session.session_id)
+        return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id, content="New session started.")
+
+    def _maybe_consolidate(self, session: Session) -> None:
+        """Trigger background consolidation if needed."""
+        unconsolidated = len(session.messages) - session.last_consolidated
+        if unconsolidated >= self.memory_window and session.session_id not in self._consolidating:
+            self._consolidating.add(session.session_id)
+
+            async def _do():
+                try:
+                    await self._consolidate_memory(session)
+                finally:
+                    self._consolidating.discard(session.session_id)
+                    t = asyncio.current_task()
+                    if t:
+                        self._consolidation_tasks.discard(t)
+
+            task = asyncio.create_task(_do())
+            self._consolidation_tasks.add(task)
+
+    def _save_turn(self, session: Session, user_content: str, assistant_content: str) -> None:
+        """Save user + assistant messages to session."""
+        now = datetime.now().isoformat()
+        session.messages.append({"role": "user", "content": user_content, "timestamp": now})
+        if assistant_content:
+            session.messages.append({"role": "assistant", "content": assistant_content, "timestamp": now})
+
+    async def _consolidate_memory(self, session: Session, archive_all: bool = False) -> bool:
+        return await MemoryStore(self.workspace).consolidate(
+            session, self.claude, archive_all=archive_all, memory_window=self.memory_window,
+        )
+
+    async def process_direct(
+        self, content: str, session_key: str = "cli:direct",
+        channel: str = "cli", chat_id: str = "direct",
+    ) -> str:
+        """Process a message directly (for CLI or cron usage)."""
+        msg = InboundMessage(channel=channel, sender_id="user", chat_id=chat_id, content=content)
+        response = await self._process_message(msg)
+        return response.content if response else ""

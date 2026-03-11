@@ -1,6 +1,6 @@
 import pytest
 
-from companio.session import SessionManager
+from companiocc.session import SessionManager
 
 
 @pytest.fixture

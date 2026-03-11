@@ -1,0 +1,133 @@
+"""Memory system for persistent agent memory."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from json_repair import repair_json
+from loguru import logger
+
+from companiocc.helpers import ensure_dir
+
+if TYPE_CHECKING:
+    from companiocc.core.claude_cli import ClaudeCLI
+    from companiocc.session import Session
+
+
+class MemoryStore:
+    """Two-layer memory: MEMORY.md (long-term facts) + HISTORY.md (grep-searchable log)."""
+
+    def __init__(self, workspace: Path):
+        self.memory_dir = ensure_dir(workspace / "memory")
+        self.memory_file = self.memory_dir / "MEMORY.md"
+        self.history_file = self.memory_dir / "HISTORY.md"
+
+    def read_long_term(self) -> str:
+        if self.memory_file.exists():
+            return self.memory_file.read_text(encoding="utf-8")
+        return ""
+
+    def write_long_term(self, content: str) -> None:
+        self.memory_file.write_text(content, encoding="utf-8")
+
+    def append_history(self, entry: str) -> None:
+        with open(self.history_file, "a", encoding="utf-8") as f:
+            f.write(entry.rstrip() + "\n\n")
+
+    def get_memory_context(self) -> str:
+        long_term = self.read_long_term()
+        return f"## Long-term Memory\n{long_term}" if long_term else ""
+
+    async def consolidate(
+        self,
+        session: Session,
+        claude: ClaudeCLI,
+        *,
+        archive_all: bool = False,
+        memory_window: int = 50,
+    ) -> bool:
+        """Consolidate old messages into MEMORY.md + HISTORY.md via Claude CLI.
+
+        Returns True on success (including no-op), False on failure.
+        """
+        if archive_all:
+            old_messages = session.messages
+            keep_count = 0
+            logger.info("Memory consolidation (archive_all): {} messages", len(session.messages))
+        else:
+            keep_count = memory_window // 2
+            if len(session.messages) <= keep_count:
+                return True
+            if len(session.messages) - session.last_consolidated <= 0:
+                return True
+            old_messages = session.messages[session.last_consolidated : -keep_count]
+            if not old_messages:
+                return True
+            logger.info(
+                "Memory consolidation: {} to consolidate, {} keep", len(old_messages), keep_count
+            )
+
+        lines = []
+        for m in old_messages:
+            if not m.get("content"):
+                continue
+            tools = f" [tools: {', '.join(m['tools_used'])}]" if m.get("tools_used") else ""
+            lines.append(
+                f"[{m.get('timestamp', '?')[:16]}] {m['role'].upper()}{tools}: {m['content']}"
+            )
+
+        current_memory = self.read_long_term()
+        prompt = f"""Process this conversation and respond with ONLY a JSON object (no markdown, no explanation):
+
+{{"history_entry": "A paragraph (2-5 sentences) summarizing key events. Start with [YYYY-MM-DD HH:MM]. Include detail useful for grep search.",
+ "memory_update": "Full updated long-term memory as markdown. Include all existing facts plus new ones."}}
+
+## Current Long-term Memory
+{current_memory or "(empty)"}
+
+## Conversation to Process
+{chr(10).join(lines)}"""
+
+        try:
+            response = await claude.run(
+                message=prompt,
+                system_prompt="You are a memory consolidation agent. Respond with ONLY valid JSON containing history_entry and memory_update fields. No markdown fences, no explanation.",
+            )
+            if response.is_error:
+                logger.warning("Memory consolidation: Claude CLI error: {}", response.result)
+                return False
+
+            # Parse JSON with fallback
+            result_text = response.result.strip()
+            try:
+                data = json.loads(result_text)
+            except json.JSONDecodeError:
+                repaired = repair_json(result_text, return_objects=True)
+                if isinstance(repaired, dict):
+                    data = repaired
+                else:
+                    logger.warning("Memory consolidation: could not parse response as JSON")
+                    return False
+
+            if entry := data.get("history_entry"):
+                if not isinstance(entry, str):
+                    entry = json.dumps(entry, ensure_ascii=False)
+                self.append_history(entry)
+            if update := data.get("memory_update"):
+                if not isinstance(update, str):
+                    update = json.dumps(update, ensure_ascii=False)
+                if update != current_memory:
+                    self.write_long_term(update)
+
+            session.last_consolidated = 0 if archive_all else len(session.messages) - keep_count
+            logger.info(
+                "Memory consolidation done: {} messages, last_consolidated={}",
+                len(session.messages),
+                session.last_consolidated,
+            )
+            return True
+        except Exception:
+            logger.exception("Memory consolidation failed")
+            return False

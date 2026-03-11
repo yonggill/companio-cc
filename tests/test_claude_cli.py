@@ -7,7 +7,7 @@ import subprocess
 
 import pytest
 
-from companio.core.claude_cli import ClaudeCLI, ClaudeResponse, _filtered_env, verify_claude_cli
+from companiocc.core.claude_cli import ClaudeCLI, ClaudeResponse, _filtered_env, verify_claude_cli
 
 # ── ClaudeResponse.from_json ──────────────────────────────────────────
 
@@ -108,12 +108,12 @@ class TestFilteredEnv:
         assert env.get("SAFE_VAR") == "keep"
 
     def test_companio_exact_names_filtered(self, monkeypatch):
-        monkeypatch.setenv("COMPANIO_TOKEN", "secret")
-        monkeypatch.setenv("COMPANIO_SECRET", "secret")
+        monkeypatch.setenv("COMPANIOCC_TOKEN", "secret")
+        monkeypatch.setenv("COMPANIOCC_SECRET", "secret")
         monkeypatch.setenv("COMPANIO_LOG_LEVEL", "DEBUG")
         env = _filtered_env()
-        assert "COMPANIO_TOKEN" not in env
-        assert "COMPANIO_SECRET" not in env
+        assert "COMPANIOCC_TOKEN" not in env
+        assert "COMPANIOCC_SECRET" not in env
         assert env.get("COMPANIO_LOG_LEVEL") == "DEBUG"
 
 

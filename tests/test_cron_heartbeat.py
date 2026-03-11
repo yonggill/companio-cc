@@ -1,4 +1,4 @@
-from companio.cron import CronJob, CronSchedule
+from companiocc.cron import CronJob, CronSchedule
 
 
 class TestCronTypes:
@@ -51,7 +51,7 @@ class TestHeartbeatConfig:
         """Heartbeat interval should default to 600 seconds (10 minutes)."""
         import inspect
 
-        from companio.heartbeat import HeartbeatService
+        from companiocc.heartbeat import HeartbeatService
 
         sig = inspect.signature(HeartbeatService.__init__)
         default = sig.parameters["interval_s"].default

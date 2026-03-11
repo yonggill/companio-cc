@@ -1,7 +1,7 @@
-"""Tests for companio.helpers, including filter_secrets()."""
+"""Tests for companiocc.helpers, including filter_secrets()."""
 
 
-from companio.helpers import filter_secrets
+from companiocc.helpers import filter_secrets
 
 
 class TestFilterSecrets:
