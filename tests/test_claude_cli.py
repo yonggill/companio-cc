@@ -2,10 +2,12 @@
 
 import asyncio
 import json
+import shutil
+import subprocess
 
 import pytest
 
-from companio.core.claude_cli import ClaudeCLI, ClaudeResponse, _filtered_env
+from companio.core.claude_cli import ClaudeCLI, ClaudeResponse, _filtered_env, verify_claude_cli
 
 
 # ── ClaudeResponse.from_json ──────────────────────────────────────────
@@ -105,6 +107,15 @@ class TestFilteredEnv:
         ]:
             assert key not in env, f"{key} should be filtered"
         assert env.get("SAFE_VAR") == "keep"
+
+    def test_companio_exact_names_filtered(self, monkeypatch):
+        monkeypatch.setenv("COMPANIO_TOKEN", "secret")
+        monkeypatch.setenv("COMPANIO_SECRET", "secret")
+        monkeypatch.setenv("COMPANIO_LOG_LEVEL", "DEBUG")
+        env = _filtered_env()
+        assert "COMPANIO_TOKEN" not in env
+        assert "COMPANIO_SECRET" not in env
+        assert env.get("COMPANIO_LOG_LEVEL") == "DEBUG"
 
 
 # ── ClaudeCLI._build_cmd ─────────────────────────────────────────────
@@ -249,3 +260,35 @@ class TestClaudeCLIRun:
         tasks = [cli.run("msg") for _ in range(5)]
         await asyncio.gather(*tasks)
         assert max_concurrent <= 2
+
+
+# ── verify_claude_cli ────────────────────────────────────────────────
+
+
+class TestVerifyClaudeCli:
+    def test_cli_found(self, monkeypatch):
+        monkeypatch.setattr(shutil, "which", lambda _: "/usr/local/bin/claude")
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            lambda *args, **kwargs: subprocess.CompletedProcess(
+                args=args, returncode=0, stdout="claude 1.0.0\n", stderr=""
+            ),
+        )
+        version = verify_claude_cli()
+        assert "1.0.0" in version
+
+    def test_cli_not_found(self, monkeypatch):
+        monkeypatch.setattr(shutil, "which", lambda _: None)
+        with pytest.raises(RuntimeError, match="not found"):
+            verify_claude_cli()
+
+    def test_version_check_failure(self, monkeypatch):
+        monkeypatch.setattr(shutil, "which", lambda _: "/usr/local/bin/claude")
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            lambda *args, **kwargs: (_ for _ in ()).throw(OSError("spawn failed")),
+        )
+        with pytest.raises(RuntimeError, match="Failed to check"):
+            verify_claude_cli()

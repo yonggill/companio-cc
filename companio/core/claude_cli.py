@@ -9,6 +9,9 @@ import shutil
 import signal
 import subprocess
 from dataclasses import dataclass
+from typing import Literal
+
+from loguru import logger
 
 _SECRET_PATTERNS = frozenset(
     {
@@ -21,7 +24,6 @@ _SECRET_PATTERNS = frozenset(
         "OPENAI_",
         "GOOGLE_",
         "GEMINI_",
-        "COMPANIO_",
         "TELEGRAM_",
         "AWS_",
         "AZURE_",
@@ -39,6 +41,8 @@ _SECRET_EXACT = frozenset(
         "JWT_SECRET",
         "SESSION_SECRET",
         "SENTRY_DSN",
+        "COMPANIO_TOKEN",
+        "COMPANIO_SECRET",
     }
 )
 
@@ -133,7 +137,7 @@ class ClaudeCLI:
         timeout: int = 300,
         max_concurrent: int = 5,
         model: str | None = None,
-        permission_mode: str = "default",
+        permission_mode: Literal["default", "bypassPermissions"] = "default",
         allowed_tools: list[str] | None = None,
     ) -> None:
         self.max_turns = max_turns
@@ -183,7 +187,12 @@ class ClaudeCLI:
                 proc.communicate(message.encode("utf-8")),
                 timeout=self.timeout,
             )
-        except (asyncio.TimeoutError, asyncio.CancelledError):
+        except asyncio.TimeoutError:
+            logger.warning("Claude CLI process timed out after {}s", self.timeout)
+            await self._kill_proc(proc)
+            raise
+        except asyncio.CancelledError:
+            logger.warning("Claude CLI process was cancelled")
             await self._kill_proc(proc)
             raise
 
@@ -205,6 +214,7 @@ class ClaudeCLI:
         try:
             await asyncio.wait_for(proc.wait(), timeout=5.0)
         except (asyncio.TimeoutError, asyncio.CancelledError):
+            logger.warning("Process {} did not exit after SIGTERM, escalating to SIGKILL", proc.pid)
             try:
                 pgid = os.getpgid(proc.pid)
                 os.killpg(pgid, signal.SIGKILL)
@@ -216,6 +226,7 @@ class ClaudeCLI:
     ) -> ClaudeResponse:
         """Run a message through the Claude CLI and return parsed response."""
         cmd = self._build_cmd(system_prompt)
+        logger.debug("Running Claude CLI: {}", " ".join(cmd))
 
         async with self._semaphore:
             try:
@@ -234,6 +245,7 @@ class ClaudeCLI:
                 )
 
         if returncode != 0:
+            logger.error("Claude CLI exited with code {}: {}", returncode, stderr)
             return ClaudeResponse(
                 result=stderr or f"Claude CLI exited with code {returncode}",
                 is_error=True,
