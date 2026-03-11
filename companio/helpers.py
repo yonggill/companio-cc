@@ -31,6 +31,56 @@ def timestamp() -> str:
 
 _UNSAFE_CHARS = re.compile(r'[<>:"/\\|?*]')
 
+# ---------------------------------------------------------------------------
+# Secret filtering (Tier 2: output-level value scanning)
+# ---------------------------------------------------------------------------
+
+_SECRET_PATTERNS = re.compile(
+    r"|".join(
+        [
+            # Private keys (mask from BEGIN marker to END marker, including the body)
+            r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
+            # JWT tokens (header.payload, ignoring signature to keep pattern tight)
+            r"eyJ[A-Za-z0-9_-]{20,}\.eyJ[A-Za-z0-9_-]{20,}(?:\.[A-Za-z0-9_-]+)?",
+            # Anthropic keys (must come before generic sk- to take priority)
+            r"sk-ant-[a-zA-Z0-9]{20,}",
+            # OpenAI keys
+            r"sk-[a-zA-Z0-9]{20,}",
+            # GitHub tokens
+            r"ghp_[a-zA-Z0-9]{36,}",
+            r"gho_[a-zA-Z0-9]{36,}",
+            r"ghs_[a-zA-Z0-9]{36,}",
+            r"ghu_[a-zA-Z0-9]{36,}",
+            # Slack tokens
+            r"xoxb-[0-9]+-[0-9]+-[a-zA-Z0-9]+",
+            r"xoxp-[0-9]+-[0-9]+-[a-zA-Z0-9]+",
+            r"xoxs-[0-9]+-[0-9]+-[a-zA-Z0-9]+",
+            # AWS access key IDs
+            r"AKIA[0-9A-Z]{16}",
+            # Webhook secrets
+            r"whsec_[a-zA-Z0-9]+",
+        ]
+    )
+)
+
+
+def filter_secrets(text: str, mask: str = "***") -> str:
+    """Scan *text* for known secret patterns and replace matches with *mask*.
+
+    This is Tier 2 of the secret-safety system: it operates on output values
+    (stdout/stderr) rather than environment variable names.
+
+    Args:
+        text: The string to scan.
+        mask: Replacement string (default ``"***"``).
+
+    Returns:
+        The sanitised string with all detected secrets replaced by *mask*.
+    """
+    if not text:
+        return text
+    return _SECRET_PATTERNS.sub(mask, text)
+
 
 def safe_filename(name: str) -> str:
     """Replace unsafe path characters with underscores."""
