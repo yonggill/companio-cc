@@ -144,13 +144,30 @@ class ClaudeCLI:
         self.allowed_tools = allowed_tools
         self._semaphore = asyncio.Semaphore(max_concurrent)
 
-    def _build_cmd(self, system_prompt: str | None) -> list[str]:
-        """Build the claude CLI command list."""
+    def _build_cmd(
+        self,
+        system_prompt: str | None,
+        *,
+        session_id: str | None = None,
+        resume_session_id: str | None = None,
+    ) -> list[str]:
+        """Build the claude CLI command list.
+
+        Args:
+            system_prompt: System prompt (only sent on first call, not on resume).
+            session_id: Create a new session with this UUID (first call).
+            resume_session_id: Resume an existing session by ID (subsequent calls).
+        """
         cmd = ["claude", "-p", "--output-format", "json"]
         cmd.extend(["--max-turns", str(self.max_turns)])
 
         if self.model:
             cmd.extend(["--model", self.model])
+
+        if resume_session_id:
+            cmd.extend(["--resume", resume_session_id])
+        elif session_id:
+            cmd.extend(["--session-id", session_id])
 
         if system_prompt:
             cmd.extend(["--append-system-prompt", system_prompt])
@@ -219,10 +236,24 @@ class ClaudeCLI:
                 pass
 
     async def run(
-        self, message: str, *, system_prompt: str | None = None
+        self,
+        message: str,
+        *,
+        system_prompt: str | None = None,
+        session_id: str | None = None,
+        resume_session_id: str | None = None,
     ) -> ClaudeResponse:
-        """Run a message through the Claude CLI and return parsed response."""
-        cmd = self._build_cmd(system_prompt)
+        """Run a message through the Claude CLI and return parsed response.
+
+        Args:
+            message: User message (passed via stdin).
+            system_prompt: System prompt (only on first call).
+            session_id: Create session with this UUID (first call).
+            resume_session_id: Resume existing session (subsequent calls).
+        """
+        cmd = self._build_cmd(
+            system_prompt, session_id=session_id, resume_session_id=resume_session_id,
+        )
         # Mask system prompt in log output (can be very large + sensitive)
         safe_cmd = [
             f"[system-prompt:{len(c)}B]" if c == system_prompt and system_prompt else c

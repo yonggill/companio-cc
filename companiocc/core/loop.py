@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -47,6 +48,8 @@ class AgentLoop:
         self._session_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._consolidating: set[str] = set()
         self._consolidation_tasks: set[asyncio.Task] = set()
+        # Claude CLI session IDs per session key (for --resume)
+        self._claude_session_ids: dict[str, str] = {}
 
     async def run(self) -> None:
         """Main loop - consume messages from bus."""
@@ -147,19 +150,37 @@ class AgentLoop:
             )
         )
 
-        # Build system prompt and history
-        system_prompt = self.context.build_system_prompt()
-        runtime_ctx = ContextBuilder._build_runtime_context(msg.channel, msg.chat_id)
-        history_text = ContextBuilder.format_history(session.messages[-self.memory_window:])
+        # Check if we have an existing Claude CLI session for this chat
+        claude_sid = self._claude_session_ids.get(key)
 
-        # Compose the full message for Claude CLI
-        full_message = f"{runtime_ctx}\n\n"
-        if history_text:
-            full_message += f"## Recent Conversation\n{history_text}\n\n"
-        full_message += f"## Current Message\n{msg.content}"
+        if claude_sid:
+            # Resume existing session — no system prompt or history needed
+            runtime_ctx = ContextBuilder._build_runtime_context(msg.channel, msg.chat_id)
+            full_message = f"{runtime_ctx}\n\n{msg.content}"
+            response = await self.claude.run(
+                message=full_message, resume_session_id=claude_sid,
+            )
+        else:
+            # First call — send system prompt + history
+            system_prompt = self.context.build_system_prompt()
+            runtime_ctx = ContextBuilder._build_runtime_context(msg.channel, msg.chat_id)
+            history_text = ContextBuilder.format_history(session.messages[-self.memory_window:])
 
-        # Call Claude CLI
-        response = await self.claude.run(message=full_message, system_prompt=system_prompt)
+            full_message = f"{runtime_ctx}\n\n"
+            if history_text:
+                full_message += f"## Recent Conversation\n{history_text}\n\n"
+            full_message += f"## Current Message\n{msg.content}"
+
+            new_session_id = str(uuid.uuid4())
+            response = await self.claude.run(
+                message=full_message,
+                system_prompt=system_prompt,
+                session_id=new_session_id,
+            )
+
+        # Store Claude CLI session ID from response for future --resume
+        if response.session_id and not response.is_error:
+            self._claude_session_ids[key] = response.session_id
 
         # Apply secret filtering
         result_text = filter_secrets(response.result) if response.result else ""
@@ -198,6 +219,8 @@ class AgentLoop:
             self._consolidating.discard(session.session_id)
 
         await self._session_manager.clear(session.session_id)
+        # Clear Claude CLI session so next call creates a fresh one
+        self._claude_session_ids.pop(msg.session_key, None)
         return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id, content="New session started.")
 
     def _maybe_consolidate(self, session: Session) -> None:

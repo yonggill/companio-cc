@@ -160,6 +160,28 @@ class TestBuildCmd:
         cmd = cli._build_cmd(system_prompt=None)
         assert "--allowedTools" not in cmd
 
+    def test_session_id(self):
+        cli = ClaudeCLI()
+        cmd = cli._build_cmd(system_prompt=None, session_id="abc-123")
+        assert "--session-id" in cmd
+        idx = cmd.index("--session-id")
+        assert cmd[idx + 1] == "abc-123"
+        assert "--resume" not in cmd
+
+    def test_resume_session(self):
+        cli = ClaudeCLI()
+        cmd = cli._build_cmd(system_prompt=None, resume_session_id="sess-456")
+        assert "--resume" in cmd
+        idx = cmd.index("--resume")
+        assert cmd[idx + 1] == "sess-456"
+        assert "--session-id" not in cmd
+
+    def test_resume_takes_precedence_over_session_id(self):
+        cli = ClaudeCLI()
+        cmd = cli._build_cmd(system_prompt=None, session_id="new", resume_session_id="old")
+        assert "--resume" in cmd
+        assert "--session-id" not in cmd
+
 
 # ── ClaudeCLI.run ─────────────────────────────────────────────────────
 
