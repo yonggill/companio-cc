@@ -259,7 +259,6 @@ companiocc gateway
 | 항목 | 설명 | 기본값 |
 |------|------|--------|
 | `sendProgress` | 진행 상황 스트리밍 | `true` |
-| `sendToolHints` | 도구 호출 힌트 전송 | `false` |
 | `telegram.enabled` | Telegram 활성화 | `false` |
 | `telegram.token` | 봇 토큰 | — |
 | `telegram.allowFrom` | 허용된 사용자 (username 또는 ID) | `[]` |

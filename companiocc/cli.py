@@ -277,9 +277,6 @@ def onboard():
     config.channels.send_progress = typer.confirm(
         "  Stream text progress to channel?", default=config.channels.send_progress
     )
-    config.channels.send_tool_hints = typer.confirm(
-        "  Stream tool-call hints?", default=config.channels.send_tool_hints
-    )
 
     # --- Save config ---
     save_config(config)

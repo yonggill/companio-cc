@@ -14,7 +14,6 @@
   },
   "channels": {
     "sendProgress": true,
-    "sendToolHints": false,
     "telegram": {
       "enabled": false,
       "token": "",

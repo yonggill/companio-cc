@@ -46,7 +46,6 @@ class TestConfigDefaults:
     def test_channels_defaults(self):
         config = Config()
         assert config.channels.send_progress is True
-        assert config.channels.send_tool_hints is False
 
 
 class TestConfigExampleConsistency:

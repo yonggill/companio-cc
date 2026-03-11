@@ -48,7 +48,6 @@ companiocc gateway          # Start gateway (Telegram + cron + heartbeat)
   },
   "channels": {
     "sendProgress": true,
-    "sendToolHints": false,
     "telegram": {
       "enabled": false,
       "token": "",
@@ -79,7 +78,6 @@ companiocc gateway          # Start gateway (Telegram + cron + heartbeat)
 
 | `claude.allowedTools` | Restrict which Claude tools are available | `[]` |
 | `channels.sendProgress` | Send intermediate progress messages | `true` |
-| `channels.sendToolHints` | Show tool-use hints in channel output | `false` |
 | `channels.telegram.enabled` | Enable Telegram bot | `false` |
 | `channels.telegram.token` | Telegram bot token from @BotFather | |
 | `channels.telegram.allowFrom` | Allowed Telegram usernames/IDs | `[]` |
