@@ -171,6 +171,7 @@ def onboard():
     """Initialize companio configuration and workspace."""
     from companio.config.loader import get_config_path, load_config, save_config
     from companio.config.schema import Config
+    from companio.core.claude_cli import verify_claude_cli
 
     config_path = get_config_path()
 
@@ -185,6 +186,16 @@ def onboard():
         config = Config()
 
     console.print(f"\n{__logo__} [bold]companio setup[/bold]\n")
+
+    # --- Check Claude CLI ---
+    console.print("[bold cyan]Step 1:[/bold cyan] Claude CLI")
+    try:
+        version = verify_claude_cli()
+        console.print(f"  [green]✓[/green] Claude CLI found: {version}")
+    except RuntimeError as exc:
+        console.print(f"  [red]✗[/red] {exc}")
+        console.print("  Install Claude CLI: https://claude.ai/code")
+        console.print("  [dim]companio requires Claude CLI to be installed and authenticated.[/dim]\n")
 
     # --- Optional dependency check ---
     import shutil
@@ -219,59 +230,17 @@ def onboard():
     else:
         console.print("[green]✓[/green] All optional dependencies found.\n")
 
-    # --- Step 1: LLM Provider ---
-    console.print("[bold cyan]Step 1:[/bold cyan] LLM Provider")
-    console.print("  Supported: Anthropic (Claude), OpenAI (GPT), Google Gemini")
-    console.print("  You need at least one API key.\n")
+    # --- Step 2: Workspace ---
+    console.print("\n[bold cyan]Step 2:[/bold cyan] Workspace")
 
-    anthropic_key = typer.prompt(
-        "  Anthropic API key (sk-ant-...)",
-        default=config.providers.anthropic.api_key or "",
-        show_default=False,
-    )
-    if anthropic_key:
-        config.providers.anthropic.api_key = anthropic_key
-
-    openai_key = typer.prompt(
-        "  OpenAI API key (sk-...)",
-        default=config.providers.openai.api_key or "",
-        show_default=False,
-    )
-    if openai_key:
-        config.providers.openai.api_key = openai_key
-
-    gemini_key = typer.prompt(
-        "  Gemini API key",
-        default=config.providers.gemini.api_key or "",
-        show_default=False,
-    )
-    if gemini_key:
-        config.providers.gemini.api_key = gemini_key
-
-    if not any([anthropic_key, openai_key, gemini_key]):
-        console.print("  [yellow]Warning: No API keys set. You can add them later in config.json[/yellow]")
-
-    # --- Step 2: Agent defaults ---
-    console.print("\n[bold cyan]Step 2:[/bold cyan] Agent Settings")
-
-    config.agents.defaults.model = typer.prompt(
-        "  Default model",
-        default=config.agents.defaults.model,
-    )
-    config.agents.defaults.provider = typer.prompt(
-        "  Provider (auto / anthropic / openai / gemini)",
-        default=config.agents.defaults.provider,
-    )
     config.agents.defaults.workspace = typer.prompt(
         "  Workspace path",
         default=config.agents.defaults.workspace,
     )
-    config.agents.defaults.max_tokens = int(typer.prompt(
-        "  Max response tokens",
-        default=str(config.agents.defaults.max_tokens),
+    config.agents.defaults.memory_window = int(typer.prompt(
+        "  Memory window (messages)",
+        default=str(config.agents.defaults.memory_window),
     ))
-    if not config.agents.defaults.reasoning_effort:
-        config.agents.defaults.reasoning_effort = "medium"
 
     # --- Step 3: Telegram ---
     console.print("\n[bold cyan]Step 3:[/bold cyan] Telegram Integration")
@@ -308,149 +277,6 @@ def onboard():
         "  Stream tool-call hints?", default=config.channels.send_tool_hints
     )
 
-    # --- Step 5: Tools ---
-    console.print("\n[bold cyan]Step 5:[/bold cyan] Tools")
-
-    config.tools.restrict_to_workspace = typer.confirm(
-        "  Restrict file access to workspace?", default=config.tools.restrict_to_workspace
-    )
-
-    # Web
-    console.print("\n  [dim]Web tools:[/dim]")
-    web_proxy = typer.prompt(
-        "  Web proxy URL (empty for direct)",
-        default=config.tools.web.proxy or "",
-        show_default=False,
-    )
-    config.tools.web.proxy = web_proxy if web_proxy else None
-
-    brave_key = typer.prompt(
-        "  Brave Search API key",
-        default=config.tools.web.search.api_key or "",
-        show_default=False,
-    )
-    if brave_key:
-        config.tools.web.search.api_key = brave_key
-
-    config.tools.web.search.max_results = int(typer.prompt(
-        "  Search max results",
-        default=str(config.tools.web.search.max_results),
-    ))
-
-    # Obsidian
-    console.print("\n  [dim]Obsidian integration:[/dim]")
-    if typer.confirm("  Enable Obsidian vault?", default=config.tools.obsidian.enabled):
-        config.tools.obsidian.enabled = True
-        vault_path = typer.prompt(
-            "  Vault path (e.g. ~/Documents/Obsidian/MyVault)",
-            default=config.tools.obsidian.vault_path or "",
-            show_default=False,
-        )
-        if vault_path:
-            config.tools.obsidian.vault_path = vault_path
-    else:
-        config.tools.obsidian.enabled = False
-
-    # --- Step 6: MCP Servers ---
-    console.print("\n[bold cyan]Step 6:[/bold cyan] MCP Servers (external tool integrations)")
-
-    # Check npx availability
-    has_npx = shutil.which("npx") is not None
-    if not has_npx:
-        console.print(
-            "  [yellow]Warning: npx not found. Install Node.js to use MCP servers.[/yellow]"
-        )
-        console.print("  [dim]https://nodejs.org/[/dim]\n")
-
-    _MCP_PRESETS: dict[str, dict] = {
-        "playwright": {
-            "label": "Playwright (browser automation)",
-            "config": {
-                "command": "npx",
-                "args": ["@playwright/mcp@latest"],
-                "toolTimeout": 60,
-            },
-            "needs_npx": True,
-        },
-        "filesystem": {
-            "label": "Filesystem (file access outside workspace)",
-            "config": {
-                "command": "npx",
-                "args": ["-y", "@modelcontextprotocol/server-filesystem", "/"],
-                "toolTimeout": 30,
-            },
-            "needs_npx": True,
-        },
-        "github": {
-            "label": "GitHub (repos, issues, PRs)",
-            "config": {
-                "command": "npx",
-                "args": ["-y", "@modelcontextprotocol/server-github"],
-                "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": ""},
-                "toolTimeout": 30,
-            },
-            "needs_npx": True,
-            "env_prompt": {
-                "GITHUB_PERSONAL_ACCESS_TOKEN": "GitHub personal access token",
-            },
-        },
-        "slack": {
-            "label": "Slack (messages, channels)",
-            "config": {
-                "command": "npx",
-                "args": ["-y", "@modelcontextprotocol/server-slack"],
-                "env": {"SLACK_BOT_TOKEN": ""},
-                "toolTimeout": 30,
-            },
-            "needs_npx": True,
-            "env_prompt": {
-                "SLACK_BOT_TOKEN": "Slack bot token (xoxb-...)",
-            },
-        },
-    }
-
-    existing_mcp = config.tools.mcp_servers or {}
-    console.print("  Select MCP servers to enable:\n")
-
-    for key, preset in _MCP_PRESETS.items():
-        already_configured = key in existing_mcp
-        suffix = ""
-        if preset.get("needs_npx") and not has_npx:
-            suffix = " [yellow](needs npx)[/yellow]"
-        if already_configured:
-            suffix += " [green](configured)[/green]"
-
-        if typer.confirm(f"  {preset['label']}{suffix}?", default=already_configured):
-            if already_configured:
-                # Keep existing config (user may have customized it)
-                pass
-            else:
-                from companio.config.schema import MCPServerConfig
-
-                mcp_data = dict(preset["config"])
-
-                # Prompt for required env vars
-                env_prompts = preset.get("env_prompt", {})
-                if env_prompts:
-                    env = dict(mcp_data.get("env", {}))
-                    for env_key, env_label in env_prompts.items():
-                        val = typer.prompt(
-                            f"    {env_label}",
-                            default=env.get(env_key, ""),
-                            show_default=False,
-                        )
-                        if val:
-                            env[env_key] = val
-                    mcp_data["env"] = env
-
-                existing_mcp[key] = MCPServerConfig.model_validate(mcp_data)
-        else:
-            # Remove if user unchecked
-            existing_mcp.pop(key, None)
-
-    config.tools.mcp_servers = existing_mcp
-    console.print("\n  [dim]Additional MCP servers can be added manually in config.json[/dim]")
-
     # --- Save config ---
     save_config(config)
     console.print(f"\n[green]✓[/green] Config saved to {config_path}")
@@ -471,30 +297,6 @@ def onboard():
     if config.channels.telegram.enabled:
         console.print('\n  Start gateway: [cyan]companio gateway[/cyan]')
     console.print('  Chat: [cyan]companio agent -m "Hello!"[/cyan]')
-
-
-def _make_provider(config: Config):
-    """Create the appropriate LLM provider from config."""
-    from companio.providers.litellm import LiteLLMProvider
-    from companio.providers.registry import find_by_name
-
-    model = config.agents.defaults.model
-    provider_name = config.get_provider_name(model)
-    p = config.get_provider(model)
-
-    spec = find_by_name(provider_name)
-    if not (p and p.api_key) and not (spec and spec.is_oauth):
-        console.print("[red]Error: No API key configured.[/red]")
-        console.print("Set one in ~/.companio/config.json under providers section")
-        raise typer.Exit(1)
-
-    return LiteLLMProvider(
-        api_key=p.api_key if p else None,
-        api_base=config.get_api_base(model),
-        default_model=model,
-        extra_headers=p.extra_headers if p else None,
-        provider_name=provider_name,
-    )
 
 
 def _load_runtime_config(config: str | None = None, workspace: str | None = None) -> Config:
@@ -530,6 +332,7 @@ def gateway(
 ):
     """Start the companio gateway."""
     from companio.core.loop import AgentLoop
+    from companio.core.claude_cli import ClaudeCLI, verify_claude_cli
     from companio.bus import MessageBus
     from companio.channels.manager import ChannelManager
     from companio.config.paths import get_cron_dir
@@ -544,10 +347,21 @@ def gateway(
 
     config = _load_runtime_config(config, workspace)
 
+    verify_claude_cli()  # fails fast if claude not installed
+
     console.print(f"{__logo__} Starting companio gateway on port {port}...")
     sync_workspace_templates(config.workspace_path)
     bus = MessageBus()
-    provider = _make_provider(config)
+
+    claude = ClaudeCLI(
+        max_turns=config.claude.max_turns,
+        timeout=config.claude.timeout,
+        max_concurrent=config.claude.max_concurrent,
+        model=config.claude.model,
+        permission_mode=config.claude.permission_mode,
+        allowed_tools=config.claude.allowed_tools,
+    )
+
     session_manager = SessionManager(config.workspace_path)
 
     # Create cron service first (callback set after agent creation)
@@ -557,23 +371,11 @@ def gateway(
     # Create agent with cron service
     agent = AgentLoop(
         bus=bus,
-        provider=provider,
+        claude=claude,
         workspace=config.workspace_path,
-        model=config.agents.defaults.model,
-        temperature=config.agents.defaults.temperature,
-        max_tokens=config.agents.defaults.max_tokens,
-        max_iterations=config.agents.defaults.max_tool_iterations,
         memory_window=config.agents.defaults.memory_window,
-        reasoning_effort=config.agents.defaults.reasoning_effort,
-        brave_api_key=config.tools.web.search.api_key or None,
-        web_proxy=config.tools.web.proxy or None,
-        exec_config=config.tools.exec,
         cron_service=cron,
-        restrict_to_workspace=config.tools.restrict_to_workspace,
-        obsidian_vault_path=config.tools.obsidian.vault_path if config.tools.obsidian.enabled else None,
         session_manager=session_manager,
-        mcp_servers=config.tools.mcp_servers,
-        channels_config=config.channels,
     )
 
     # Set cron callback (needs agent)
@@ -625,18 +427,7 @@ def gateway(
 
     def _pick_heartbeat_target() -> tuple[str, str]:
         """Pick a routable channel/chat target for heartbeat-triggered messages."""
-        enabled = set(channels.enabled_channels)
-        # Prefer the most recently updated non-internal session on an enabled channel.
-        for item in session_manager.list_sessions():
-            key = item.get("key") or ""
-            if ":" not in key:
-                continue
-            channel, chat_id = key.split(":", 1)
-            if channel in {"cli", "system"}:
-                continue
-            if channel in enabled and chat_id:
-                return channel, chat_id
-        # Fallback keeps prior behavior but remains explicit.
+        # Fallback: no session listing available, use cli channel
         return "cli", "direct"
 
     # Create heartbeat service
@@ -669,8 +460,6 @@ def gateway(
     hb_cfg = config.gateway.heartbeat
     heartbeat = HeartbeatService(
         workspace=config.workspace_path,
-        provider=provider,
-        model=agent.model,
         on_execute=on_heartbeat_execute,
         on_notify=on_heartbeat_notify,
         interval_s=hb_cfg.interval_s,
@@ -699,7 +488,6 @@ def gateway(
         except KeyboardInterrupt:
             console.print("\nShutting down...")
         finally:
-            await agent.close_mcp()
             heartbeat.stop()
             cron.stop()
             agent.stop()
@@ -730,6 +518,7 @@ def agent(
     from loguru import logger
 
     from companio.core.loop import AgentLoop
+    from companio.core.claude_cli import ClaudeCLI, verify_claude_cli
     from companio.bus import MessageBus
     from companio.config.paths import get_cron_dir
     from companio.cron import CronService
@@ -737,8 +526,18 @@ def agent(
     config = _load_runtime_config(config, workspace)
     sync_workspace_templates(config.workspace_path)
 
+    verify_claude_cli()  # fails fast if claude not installed
+
     bus = MessageBus()
-    provider = _make_provider(config)
+
+    claude = ClaudeCLI(
+        max_turns=config.claude.max_turns,
+        timeout=config.claude.timeout,
+        max_concurrent=config.claude.max_concurrent,
+        model=config.claude.model,
+        permission_mode=config.claude.permission_mode,
+        allowed_tools=config.claude.allowed_tools,
+    )
 
     # Create cron service for tool usage (no callback needed for CLI unless running)
     cron_store_path = get_cron_dir() / "jobs.json"
@@ -751,22 +550,10 @@ def agent(
 
     agent_loop = AgentLoop(
         bus=bus,
-        provider=provider,
+        claude=claude,
         workspace=config.workspace_path,
-        model=config.agents.defaults.model,
-        temperature=config.agents.defaults.temperature,
-        max_tokens=config.agents.defaults.max_tokens,
-        max_iterations=config.agents.defaults.max_tool_iterations,
         memory_window=config.agents.defaults.memory_window,
-        reasoning_effort=config.agents.defaults.reasoning_effort,
-        brave_api_key=config.tools.web.search.api_key or None,
-        web_proxy=config.tools.web.proxy or None,
-        exec_config=config.tools.exec,
         cron_service=cron,
-        restrict_to_workspace=config.tools.restrict_to_workspace,
-        obsidian_vault_path=config.tools.obsidian.vault_path if config.tools.obsidian.enabled else None,
-        mcp_servers=config.tools.mcp_servers,
-        channels_config=config.channels,
     )
 
     # Show spinner when logs are off (no output to miss); skip when logs are on
@@ -779,11 +566,6 @@ def agent(
         return console.status("[dim]companio is thinking...[/dim]", spinner="dots")
 
     async def _cli_progress(content: str, *, tool_hint: bool = False) -> None:
-        ch = agent_loop.channels_config
-        if ch and tool_hint and not ch.send_tool_hints:
-            return
-        if ch and not tool_hint and not ch.send_progress:
-            return
         console.print(f"  [dim]↳ {content}[/dim]")
 
     if message:
@@ -794,7 +576,6 @@ def agent(
                     message, session_id, on_progress=_cli_progress
                 )
             _print_agent_response(response, render_markdown=markdown)
-            await agent_loop.close_mcp()
 
         asyncio.run(run_once())
     else:
@@ -839,13 +620,7 @@ def agent(
                         msg = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
                         if msg.metadata.get("_progress"):
                             is_tool_hint = msg.metadata.get("_tool_hint", False)
-                            ch = agent_loop.channels_config
-                            if ch and is_tool_hint and not ch.send_tool_hints:
-                                pass
-                            elif ch and not is_tool_hint and not ch.send_progress:
-                                pass
-                            else:
-                                console.print(f"  [dim]↳ {msg.content}[/dim]")
+                            console.print(f"  [dim]↳ {msg.content}[/dim]")
                         elif not turn_done.is_set():
                             if msg.content:
                                 turn_response.append(msg.content)
@@ -903,7 +678,6 @@ def agent(
                 agent_loop.stop()
                 outbound_task.cancel()
                 await asyncio.gather(bus_task, outbound_task, return_exceptions=True)
-                await agent_loop.close_mcp()
 
         asyncio.run(run_interactive())
 
@@ -945,6 +719,9 @@ def channels_status():
 @app.command()
 def status():
     """Show companio status."""
+    import shutil
+    import subprocess
+
     from companio.config.loader import get_config_path, load_config
 
     config_path = get_config_path()
@@ -961,28 +738,23 @@ def status():
     )
 
     if config_path.exists():
-        from companio.providers.registry import PROVIDERS
-
-        console.print(f"Model: {config.agents.defaults.model}")
-
-        # Check API keys from registry
-        for spec in PROVIDERS:
-            p = getattr(config.providers, spec.name, None)
-            if p is None:
-                continue
-            if spec.is_oauth:
-                console.print(f"{spec.label}: [green]✓ (OAuth)[/green]")
-            elif spec.is_local:
-                # Local deployments show api_base instead of api_key
-                if p.api_base:
-                    console.print(f"{spec.label}: [green]✓ {p.api_base}[/green]")
-                else:
-                    console.print(f"{spec.label}: [dim]not set[/dim]")
-            else:
-                has_key = bool(p.api_key)
-                console.print(
-                    f"{spec.label}: {'[green]✓[/green]' if has_key else '[dim]not set[/dim]'}"
+        # Claude CLI status
+        claude_path = shutil.which("claude")
+        if claude_path:
+            try:
+                proc = subprocess.run(
+                    [claude_path, "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
                 )
+                claude_version = proc.stdout.strip() or proc.stderr.strip() or "unknown"
+                console.print(f"Claude CLI: [green]✓ {claude_version}[/green]")
+            except Exception:
+                console.print("Claude CLI: [yellow]found but version check failed[/yellow]")
+        else:
+            console.print("Claude CLI: [red]✗ not found[/red]")
+            console.print("  Install: https://claude.ai/code")
 
 
 if __name__ == "__main__":
