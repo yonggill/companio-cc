@@ -3,66 +3,31 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Coroutine
+from typing import Any, Callable, Coroutine
 
 from loguru import logger
-
-if TYPE_CHECKING:
-    from companio.providers.base import LLMProvider
-
-_HEARTBEAT_TOOL = [
-    {
-        "type": "function",
-        "function": {
-            "name": "heartbeat",
-            "description": "Report heartbeat decision after reviewing tasks.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "action": {
-                        "type": "string",
-                        "enum": ["skip", "run"],
-                        "description": "skip = nothing to do, run = has active tasks",
-                    },
-                    "tasks": {
-                        "type": "string",
-                        "description": "Natural-language summary of active tasks (required for run)",
-                    },
-                },
-                "required": ["action"],
-            },
-        },
-    }
-]
 
 
 class HeartbeatService:
     """
     Periodic heartbeat service that wakes the agent to check for tasks.
 
-    Phase 1 (decision): reads HEARTBEAT.md and asks the LLM — via a virtual
-    tool call — whether there are active tasks.  This avoids free-text parsing
-    and the unreliable HEARTBEAT_OK token.
-
-    Phase 2 (execution): only triggered when Phase 1 returns ``run``.  The
-    ``on_execute`` callback runs the task through the full agent loop and
-    returns the result to deliver.
+    Reads MEMORY.md and uses rule-based parsing to detect unchecked markdown
+    checkboxes (active tasks).  When active tasks are found the ``on_execute``
+    callback is invoked with a plain-text summary.
     """
 
     def __init__(
         self,
         workspace: Path,
-        provider: LLMProvider,
-        model: str,
         on_execute: Callable[[str], Coroutine[Any, Any, str]] | None = None,
         on_notify: Callable[[str], Coroutine[Any, Any, None]] | None = None,
         interval_s: int = 10 * 60,
         enabled: bool = True,
     ):
         self.workspace = workspace
-        self.provider = provider
-        self.model = model
         self.on_execute = on_execute
         self.on_notify = on_notify
         self.interval_s = interval_s
@@ -82,34 +47,9 @@ class HeartbeatService:
                 return None
         return None
 
-    async def _decide(self, content: str) -> tuple[str, str]:
-        """Phase 1: ask LLM to decide skip/run via virtual tool call.
-
-        Returns (action, tasks) where action is 'skip' or 'run'.
-        """
-        response = await self.provider.chat(
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a heartbeat agent. Call the heartbeat tool to report your decision.",
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        "Review the following HEARTBEAT.md and decide whether there are active tasks.\n\n"
-                        f"{content}"
-                    ),
-                },
-            ],
-            tools=_HEARTBEAT_TOOL,
-            model=self.model,
-        )
-
-        if not response.has_tool_calls:
-            return "skip", ""
-
-        args = response.tool_calls[0].arguments
-        return args.get("action", "skip"), args.get("tasks", "")
+    def _parse_active_tasks(self, text: str) -> list[str]:
+        """Return a list of active (unchecked) task strings from MEMORY.md."""
+        return re.findall(r'- \[ \] (.+)', text)
 
     async def start(self) -> None:
         """Start the heartbeat service."""
@@ -153,15 +93,16 @@ class HeartbeatService:
         logger.info("Heartbeat: checking for tasks...")
 
         try:
-            action, tasks = await self._decide(content)
+            active_tasks = self._parse_active_tasks(content)
 
-            if action != "run":
+            if not active_tasks:
                 logger.info("Heartbeat: OK (nothing to report)")
                 return
 
+            summary = "Active tasks:\n" + "\n".join(f"- {t}" for t in active_tasks)
             logger.info("Heartbeat: tasks found, executing...")
             if self.on_execute:
-                response = await self.on_execute(tasks)
+                response = await self.on_execute(summary)
                 if response and self.on_notify:
                     logger.info("Heartbeat: completed, delivering response")
                     await self.on_notify(response)
@@ -173,7 +114,8 @@ class HeartbeatService:
         content = self._read_heartbeat_file()
         if not content:
             return None
-        action, tasks = await self._decide(content)
-        if action != "run" or not self.on_execute:
+        active_tasks = self._parse_active_tasks(content)
+        if not active_tasks or not self.on_execute:
             return None
-        return await self.on_execute(tasks)
+        summary = "Active tasks:\n" + "\n".join(f"- {t}" for t in active_tasks)
+        return await self.on_execute(summary)
