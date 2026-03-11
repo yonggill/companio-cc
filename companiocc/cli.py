@@ -374,7 +374,6 @@ def gateway(
         timeout=config.claude.timeout,
         max_concurrent=config.claude.max_concurrent,
         model=config.claude.model,
-        allowed_tools=config.claude.allowed_tools,
     )
 
     session_manager = SessionManager(config.workspace_path)
@@ -536,7 +535,6 @@ def agent(
         timeout=config.claude.timeout,
         max_concurrent=config.claude.max_concurrent,
         model=config.claude.model,
-        allowed_tools=config.claude.allowed_tools,
     )
 
     # Create cron service for tool usage (no callback needed for CLI unless running)

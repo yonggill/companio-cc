@@ -81,7 +81,9 @@ def _migrate_config(data: dict) -> dict:
     # Remove stale keys from pre-Claude-CLI architecture
     for stale in ("tools", "providers"):
         data.pop(stale, None)
-    # Remove sendToolHints from channels (no longer supported)
+    # Remove stale keys from subsections
     if "channels" in data:
         data["channels"].pop("sendToolHints", None)
+    if "claude" in data:
+        data["claude"].pop("allowedTools", None)
     return data

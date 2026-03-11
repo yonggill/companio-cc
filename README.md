@@ -74,8 +74,7 @@ companiocc agent -m "안녕하세요!"
     "maxTurns": 50,
     "timeout": 300,
     "maxConcurrent": 5,
-    "model": null,
-    "allowedTools": []
+    "model": null
   },
   "channels": {
     "sendProgress": true,
@@ -102,7 +101,6 @@ companiocc agent -m "안녕하세요!"
 | `timeout` | 요청 타임아웃 (초) | `300` |
 | `maxConcurrent` | 최대 동시 세션 수 | `5` |
 | `model` | 모델 오버라이드 (`null` = CLI 기본값) | `null` |
-| `allowedTools` | 허용할 Claude 도구 제한 | `[]` (전체) |
 
 #### 채널 (`channels`)
 

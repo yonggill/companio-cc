@@ -146,18 +146,6 @@ class TestBuildCmd:
         cmd = cli._build_cmd()
         assert "--dangerously-skip-permissions" in cmd
 
-    def test_allowed_tools(self, tmp_path):
-        cli = self._make_cli(tmp_path, allowed_tools=["Read", "Edit", "Bash"])
-        cmd = cli._build_cmd()
-        assert "--allowedTools" in cmd
-        idx = cmd.index("--allowedTools")
-        assert cmd[idx + 1] == "Read,Edit,Bash"
-
-    def test_no_allowed_tools_no_flag(self, tmp_path):
-        cli = self._make_cli(tmp_path)
-        cmd = cli._build_cmd()
-        assert "--allowedTools" not in cmd
-
     def test_session_id(self, tmp_path):
         cli = self._make_cli(tmp_path)
         cmd = cli._build_cmd(session_id="abc-123")

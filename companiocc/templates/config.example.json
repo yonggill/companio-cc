@@ -9,8 +9,7 @@
     "maxTurns": 50,
     "timeout": 300,
     "maxConcurrent": 5,
-    "model": null,
-    "allowedTools": []
+    "model": null
   },
   "channels": {
     "sendProgress": true,

@@ -138,13 +138,11 @@ class ClaudeCLI:
         timeout: int = 300,
         max_concurrent: int = 5,
         model: str | None = None,
-        allowed_tools: list[str] | None = None,
     ) -> None:
         self.project_dir = project_dir
         self.max_turns = max_turns
         self.timeout = timeout
         self.model = model
-        self.allowed_tools = allowed_tools
         self._semaphore = asyncio.Semaphore(max_concurrent)
 
     def _build_cmd(
@@ -176,9 +174,6 @@ class ClaudeCLI:
 
         # Always skip permissions — companiocc runs as an autonomous agent
         cmd.append("--dangerously-skip-permissions")
-
-        if self.allowed_tools:
-            cmd.extend(["--allowedTools", ",".join(self.allowed_tools)])
 
         return cmd
 

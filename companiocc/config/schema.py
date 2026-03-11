@@ -67,7 +67,6 @@ class ClaudeCLIConfig(Base):
     timeout: int = 300
     max_concurrent: int = 5
     model: str | None = None  # Claude CLI model override
-    allowed_tools: list[str] = Field(default_factory=list)
 
 
 class Config(BaseSettings):

@@ -43,8 +43,7 @@ companiocc gateway          # Start gateway (Telegram + cron + heartbeat)
     "maxTurns": 50,
     "timeout": 300,
     "maxConcurrent": 5,
-    "model": null,
-    "allowedTools": []
+    "model": null
   },
   "channels": {
     "sendProgress": true,
@@ -76,7 +75,6 @@ companiocc gateway          # Start gateway (Telegram + cron + heartbeat)
 | `claude.maxConcurrent` | Max concurrent Claude sessions | `5` |
 | `claude.model` | Claude model override (`null` = Claude CLI default) | `null` |
 
-| `claude.allowedTools` | Restrict which Claude tools are available | `[]` |
 | `channels.sendProgress` | Send intermediate progress messages | `true` |
 | `channels.telegram.enabled` | Enable Telegram bot | `false` |
 | `channels.telegram.token` | Telegram bot token from @BotFather | |
