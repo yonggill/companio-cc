@@ -1,14 +1,12 @@
-"""Cron tool for scheduling reminders and tasks."""
+"""Cron manager for scheduling reminders and tasks."""
 
 from contextvars import ContextVar
-from typing import Any
 
-from companio.tools.base import Tool
 from companio.cron import CronSchedule, CronService
 
 
-class CronTool(Tool):
-    """Tool to schedule reminders and recurring tasks."""
+class CronManager:
+    """Schedules reminders and recurring tasks."""
 
     def __init__(self, cron_service: CronService):
         self._cron = cron_service
@@ -29,66 +27,23 @@ class CronTool(Tool):
         """Restore previous cron context."""
         self._in_cron_context.reset(token)
 
-    @property
-    def name(self) -> str:
-        return "cron"
-
-    @property
-    def description(self) -> str:
-        return "Schedule reminders and recurring tasks. Actions: add, list, remove."
-
-    @property
-    def parameters(self) -> dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["add", "list", "remove"],
-                    "description": "Action to perform",
-                },
-                "message": {"type": "string", "description": "Reminder message (for add)"},
-                "every_seconds": {
-                    "type": "integer",
-                    "description": "Interval in seconds (for recurring tasks)",
-                },
-                "cron_expr": {
-                    "type": "string",
-                    "description": "Cron expression like '0 9 * * *' (for scheduled tasks)",
-                },
-                "tz": {
-                    "type": "string",
-                    "description": "IANA timezone for cron expressions (e.g. 'America/Vancouver')",
-                },
-                "at": {
-                    "type": "string",
-                    "description": "ISO datetime for one-time execution (e.g. '2026-02-12T10:30:00')",
-                },
-                "job_id": {"type": "string", "description": "Job ID (for remove)"},
-            },
-            "required": ["action"],
-        }
-
-    async def execute(
+    def add_job(
         self,
-        action: str,
-        message: str = "",
+        message: str,
         every_seconds: int | None = None,
         cron_expr: str | None = None,
         tz: str | None = None,
         at: str | None = None,
-        job_id: str | None = None,
-        **kwargs: Any,
     ) -> str:
-        if action == "add":
-            if self._in_cron_context.get():
-                return "Error: cannot schedule new jobs from within a cron job execution"
-            return self._add_job(message, every_seconds, cron_expr, tz, at)
-        elif action == "list":
-            return self._list_jobs()
-        elif action == "remove":
-            return self._remove_job(job_id)
-        return f"Unknown action: {action}"
+        if self._in_cron_context.get():
+            return "Error: cannot schedule new jobs from within a cron job execution"
+        return self._add_job(message, every_seconds, cron_expr, tz, at)
+
+    def list_jobs(self) -> str:
+        return self._list_jobs()
+
+    def remove_job(self, job_id: str | None) -> str:
+        return self._remove_job(job_id)
 
     def _add_job(
         self,

@@ -1,13 +1,12 @@
-"""Message tool for sending messages to users."""
+"""Message sender for sending messages to users."""
 
 from typing import Any, Awaitable, Callable
 
-from companio.tools.base import Tool
 from companio.bus import OutboundMessage
 
 
-class MessageTool(Tool):
-    """Tool to send messages to users on chat channels."""
+class MessageSender:
+    """Sends messages to users on chat channels."""
 
     def __init__(
         self,
@@ -36,35 +35,7 @@ class MessageTool(Tool):
         """Reset per-turn send tracking."""
         self._sent_in_turn = False
 
-    @property
-    def name(self) -> str:
-        return "message"
-
-    @property
-    def description(self) -> str:
-        return "Send a message to the user. Use this when you want to communicate something."
-
-    @property
-    def parameters(self) -> dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "content": {"type": "string", "description": "The message content to send"},
-                "channel": {
-                    "type": "string",
-                    "description": "Optional: target channel (telegram, discord, etc.)",
-                },
-                "chat_id": {"type": "string", "description": "Optional: target chat/user ID"},
-                "media": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Optional: list of file paths to attach (images, audio, documents)",
-                },
-            },
-            "required": ["content"],
-        }
-
-    async def execute(
+    async def send(
         self,
         content: str,
         channel: str | None = None,
