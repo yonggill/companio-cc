@@ -6,40 +6,14 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from json_repair import repair_json
 from loguru import logger
 
 from companio.helpers import ensure_dir
 
 if TYPE_CHECKING:
-    from companio.providers.base import LLMProvider
+    from companio.core.claude_cli import ClaudeCLI
     from companio.session import Session
-
-
-_SAVE_MEMORY_TOOL = [
-    {
-        "type": "function",
-        "function": {
-            "name": "save_memory",
-            "description": "Save the memory consolidation result to persistent storage.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "history_entry": {
-                        "type": "string",
-                        "description": "A paragraph (2-5 sentences) summarizing key events/decisions/topics. "
-                        "Start with [YYYY-MM-DD HH:MM]. Include detail useful for grep search.",
-                    },
-                    "memory_update": {
-                        "type": "string",
-                        "description": "Full updated long-term memory as markdown. Include all existing "
-                        "facts plus new ones. Return unchanged if nothing new.",
-                    },
-                },
-                "required": ["history_entry", "memory_update"],
-            },
-        },
-    }
-]
 
 
 class MemoryStore:
@@ -69,13 +43,12 @@ class MemoryStore:
     async def consolidate(
         self,
         session: Session,
-        provider: LLMProvider,
-        model: str,
+        claude: ClaudeCLI,
         *,
         archive_all: bool = False,
         memory_window: int = 50,
     ) -> bool:
-        """Consolidate old messages into MEMORY.md + HISTORY.md via LLM tool call.
+        """Consolidate old messages into MEMORY.md + HISTORY.md via Claude CLI.
 
         Returns True on success (including no-op), False on failure.
         """
@@ -106,7 +79,10 @@ class MemoryStore:
             )
 
         current_memory = self.read_long_term()
-        prompt = f"""Process this conversation and call the save_memory tool with your consolidation.
+        prompt = f"""Process this conversation and respond with ONLY a JSON object (no markdown, no explanation):
+
+{{"history_entry": "A paragraph (2-5 sentences) summarizing key events. Start with [YYYY-MM-DD HH:MM]. Include detail useful for grep search.",
+ "memory_update": "Full updated long-term memory as markdown. Include all existing facts plus new ones."}}
 
 ## Current Long-term Memory
 {current_memory or "(empty)"}
@@ -115,52 +91,31 @@ class MemoryStore:
 {chr(10).join(lines)}"""
 
         try:
-            response = await provider.chat(
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a memory consolidation agent. Call the save_memory tool with your consolidation of the conversation.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                tools=_SAVE_MEMORY_TOOL,
-                model=model,
-                tool_choice="required",
+            response = await claude.run(
+                message=prompt,
+                system_prompt="You are a memory consolidation agent. Respond with ONLY valid JSON containing history_entry and memory_update fields. No markdown fences, no explanation.",
             )
-
-            if not response.has_tool_calls:
-                logger.warning(
-                    "Memory consolidation: LLM did not call save_memory, skipping. "
-                    "finish_reason={}, content={}",
-                    response.finish_reason,
-                    (response.content or "")[:200],
-                )
+            if response.is_error:
+                logger.warning("Memory consolidation: Claude CLI error: {}", response.result)
                 return False
 
-            args = response.tool_calls[0].arguments
-            # Some providers return arguments as a JSON string instead of dict
-            if isinstance(args, str):
-                args = json.loads(args)
-            # Some providers return arguments as a list (handle edge case)
-            if isinstance(args, list):
-                if args and isinstance(args[0], dict):
-                    args = args[0]
+            # Parse JSON with fallback
+            result_text = response.result.strip()
+            try:
+                data = json.loads(result_text)
+            except json.JSONDecodeError:
+                repaired = repair_json(result_text, return_objects=True)
+                if isinstance(repaired, dict):
+                    data = repaired
                 else:
-                    logger.warning(
-                        "Memory consolidation: unexpected arguments as empty or non-dict list"
-                    )
+                    logger.warning("Memory consolidation: could not parse response as JSON")
                     return False
-            if not isinstance(args, dict):
-                logger.warning(
-                    "Memory consolidation: unexpected arguments type {}", type(args).__name__
-                )
-                return False
 
-            if entry := args.get("history_entry"):
+            if entry := data.get("history_entry"):
                 if not isinstance(entry, str):
                     entry = json.dumps(entry, ensure_ascii=False)
                 self.append_history(entry)
-            if update := args.get("memory_update"):
+            if update := data.get("memory_update"):
                 if not isinstance(update, str):
                     update = json.dumps(update, ensure_ascii=False)
                 if update != current_memory:
