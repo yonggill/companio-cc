@@ -157,7 +157,7 @@ class AgentLoop:
 
         if claude_sid:
             # Resume existing session — no system prompt or history needed
-            runtime_ctx = ContextBuilder._build_runtime_context(msg.channel, msg.chat_id)
+            runtime_ctx = ContextBuilder._build_runtime_context(msg.channel, msg.chat_id, msg.metadata)
             full_message = f"{runtime_ctx}\n\n{msg.content}"
             response = await self.claude.run(
                 message=full_message, resume_session_id=claude_sid,
@@ -165,7 +165,7 @@ class AgentLoop:
         else:
             # First call — write CLAUDE.md and inject history if available
             self.context.write_claude_md(self.claude.project_dir)
-            runtime_ctx = ContextBuilder._build_runtime_context(msg.channel, msg.chat_id)
+            runtime_ctx = ContextBuilder._build_runtime_context(msg.channel, msg.chat_id, msg.metadata)
             history_text = ContextBuilder.format_history(session.messages[-self.memory_window:])
 
             full_message = f"{runtime_ctx}\n\n"
