@@ -331,11 +331,11 @@ def gateway(
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
 ):
     """Start the companio gateway."""
-    from companio.core.loop import AgentLoop
-    from companio.core.claude_cli import ClaudeCLI, verify_claude_cli
     from companio.bus import MessageBus
     from companio.channels.manager import ChannelManager
     from companio.config.paths import get_cron_dir
+    from companio.core.claude_cli import ClaudeCLI, verify_claude_cli
+    from companio.core.loop import AgentLoop
     from companio.cron import CronJob, CronService
     from companio.heartbeat import HeartbeatService
     from companio.session import SessionManager
@@ -517,10 +517,10 @@ def agent(
     """Interact with the agent directly."""
     from loguru import logger
 
-    from companio.core.loop import AgentLoop
-    from companio.core.claude_cli import ClaudeCLI, verify_claude_cli
     from companio.bus import MessageBus
     from companio.config.paths import get_cron_dir
+    from companio.core.claude_cli import ClaudeCLI, verify_claude_cli
+    from companio.core.loop import AgentLoop
     from companio.cron import CronService
 
     config = _load_runtime_config(config, workspace)
@@ -619,7 +619,6 @@ def agent(
                     try:
                         msg = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
                         if msg.metadata.get("_progress"):
-                            is_tool_hint = msg.metadata.get("_tool_hint", False)
                             console.print(f"  [dim]↳ {msg.content}[/dim]")
                         elif not turn_done.is_set():
                             if msg.content:

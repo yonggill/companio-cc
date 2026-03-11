@@ -1,7 +1,8 @@
+
 import pytest
-from unittest.mock import AsyncMock
+
+from companio.bus import MessageBus
 from companio.channels.base import BaseChannel
-from companio.bus import InboundMessage, MessageBus, OutboundMessage
 
 
 class MockChannel(BaseChannel):

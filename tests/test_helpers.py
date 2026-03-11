@@ -1,6 +1,5 @@
 """Tests for companio.helpers, including filter_secrets()."""
 
-import pytest
 
 from companio.helpers import filter_secrets
 

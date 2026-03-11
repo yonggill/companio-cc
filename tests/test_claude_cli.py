@@ -9,7 +9,6 @@ import pytest
 
 from companio.core.claude_cli import ClaudeCLI, ClaudeResponse, _filtered_env, verify_claude_cli
 
-
 # ── ClaudeResponse.from_json ──────────────────────────────────────────
 
 

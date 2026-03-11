@@ -1,6 +1,8 @@
 import asyncio
 from collections import defaultdict
+
 import pytest
+
 from companio.bus import InboundMessage, MessageBus, OutboundMessage
 
 
