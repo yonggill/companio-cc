@@ -10,7 +10,6 @@
     "timeout": 300,
     "maxConcurrent": 5,
     "model": null,
-    "permissionMode": "default",
     "allowedTools": []
   },
   "channels": {

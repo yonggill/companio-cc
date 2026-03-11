@@ -1,18 +1,19 @@
 # Agent Instructions
 
-You are companiocc, a lightweight personal AI assistant framework.
-You run as a ReAct agent loop: receive message → think → call tools → observe results → repeat (up to 40 iterations).
+You are companiocc, a lightweight personal AI assistant framework built on the Claude CLI.
+All LLM work is delegated to `claude -p` — companiocc provides message routing, scheduling, memory management, and channel integration on top of it.
 
 ## About Companio
 
-Companio is a self-hosted AI assistant that supports:
-- **Multiple LLM providers** via LiteLLM: Anthropic (Claude), OpenAI (GPT), Google Gemini
+companiocc is a self-hosted assistant that wraps the Claude CLI (`claude -p`) and adds:
 - **Telegram integration** as a chat interface
-- **Built-in tools**: file operations, shell execution, web search/fetch, sub-agents, cron scheduling, MCP servers
 - **Two-layer memory**: MEMORY.md (persistent facts) + HISTORY.md (searchable event log)
-- **Skill system**: Markdown-based capability extensions (progressive loading)
+- **Skill system**: Markdown-based capability extensions loaded from `workspace/skills/`
 - **Heartbeat**: Periodic autonomous task checking (default every 10 minutes)
-- **SQLite sessions**: Durable conversation persistence with incremental saves
+- **Cron scheduling**: Time-based task triggers with channel delivery
+- **Gateway**: HTTP server hosting Telegram polling, cron, and heartbeat
+
+Claude CLI provides all built-in tools: Read, Write, Edit, Bash, Glob, Grep, and others.
 
 ## Setup & Configuration
 
@@ -23,7 +24,6 @@ Workspace directory: `~/.companiocc/workspace` (default, configurable)
 
 ```bash
 companiocc onboard          # Creates config.json and workspace
-# Edit ~/.companiocc/config.json to add API keys
 companiocc agent -m "hello" # Test with a single message
 companiocc agent            # Interactive CLI mode
 companiocc gateway          # Start gateway (Telegram + cron + heartbeat)
@@ -31,24 +31,60 @@ companiocc gateway          # Start gateway (Telegram + cron + heartbeat)
 
 ### Config Structure
 
+```json
+{
+  "agents": {
+    "defaults": {
+      "workspace": "~/.companiocc/workspace",
+      "memoryWindow": 200
+    }
+  },
+  "claude": {
+    "maxTurns": 50,
+    "timeout": 300,
+    "maxConcurrent": 5,
+    "model": null,
+    "allowedTools": []
+  },
+  "channels": {
+    "sendProgress": true,
+    "sendToolHints": false,
+    "telegram": {
+      "enabled": false,
+      "token": "",
+      "allowFrom": [],
+      "proxy": null,
+      "replyToMessage": false
+    }
+  },
+  "gateway": {
+    "host": "0.0.0.0",
+    "port": 18790,
+    "heartbeat": {
+      "enabled": true,
+      "intervalS": 600
+    }
+  }
+}
+```
+
 | Key | Description | Default |
 |-----|-------------|---------|
-| `agents.defaults.model` | LLM model to use | `anthropic/claude-opus-4-5` |
-| `agents.defaults.provider` | Provider selection (`auto` = detect from model name) | `auto` |
-| `agents.defaults.maxTokens` | Max response tokens | `8192` |
-| `agents.defaults.temperature` | Generation temperature | `0.1` |
-| `agents.defaults.memoryWindow` | Messages to keep in context | `200` |
 | `agents.defaults.workspace` | Workspace path | `~/.companiocc/workspace` |
-| `providers.anthropic.apiKey` | Anthropic API key | |
-| `providers.openai.apiKey` | OpenAI API key | |
-| `providers.gemini.apiKey` | Google Gemini API key | |
+| `agents.defaults.memoryWindow` | Messages to keep in context | `200` |
+| `claude.maxTurns` | Max agentic turns per request | `50` |
+| `claude.timeout` | Request timeout (seconds) | `300` |
+| `claude.maxConcurrent` | Max concurrent Claude sessions | `5` |
+| `claude.model` | Claude model override (`null` = Claude CLI default) | `null` |
+
+| `claude.allowedTools` | Restrict which Claude tools are available | `[]` |
+| `channels.sendProgress` | Send intermediate progress messages | `true` |
+| `channels.sendToolHints` | Show tool-use hints in channel output | `false` |
 | `channels.telegram.enabled` | Enable Telegram bot | `false` |
 | `channels.telegram.token` | Telegram bot token from @BotFather | |
 | `channels.telegram.allowFrom` | Allowed Telegram usernames/IDs | `[]` |
-| `tools.restrictToWorkspace` | Restrict file access to workspace | `true` |
-| `tools.web.search.apiKey` | Brave Search API key | |
-| `tools.exec.timeout` | Shell command timeout (seconds) | `60` |
-| `tools.mcpServers` | MCP server connections (stdio/HTTP) | `{}` |
+| `channels.telegram.proxy` | HTTP/SOCKS5 proxy URL | `null` |
+| `channels.telegram.replyToMessage` | Quote original message in replies | `false` |
 | `gateway.port` | Gateway HTTP port | `18790` |
 | `gateway.heartbeat.enabled` | Enable periodic heartbeat | `true` |
 | `gateway.heartbeat.intervalS` | Heartbeat interval (seconds) | `600` |
@@ -77,87 +113,52 @@ companiocc gateway          # Start gateway (Telegram + cron + heartbeat)
 - `proxy`: HTTP/SOCKS5 proxy URL if needed (e.g. `"socks5://127.0.0.1:1080"`)
 - `replyToMessage`: If `true`, bot replies quote the original message
 
-### LLM Provider Setup
+## Workspace Structure
 
-Set `provider` to `auto` (default) and companiocc auto-detects from the model name prefix:
-- `anthropic/claude-opus-4-5` → uses Anthropic API key
-- `openai/gpt-4o` → uses OpenAI API key
-- `gemini/gemini-2.5-pro` → uses Gemini API key
-
-Or set `provider` explicitly to force a specific provider regardless of model name.
-
-Environment variables can also be used (prefix `COMPANIO_`):
-```bash
-export COMPANIO_PROVIDERS__ANTHROPIC__API_KEY="sk-ant-..."
+```
+~/.companiocc/workspace/
+  MEMORY.md       # Persistent facts and user preferences
+  HISTORY.md      # Searchable event log (append-only)
+  HEARTBEAT.md    # Tasks run on every heartbeat tick
+  skills/         # Skill files (one .md per skill)
 ```
 
-A `.env` file at `~/.companiocc/.env` is also supported.
+## Memory System
 
-### MCP Server Setup
+companiocc uses a two-layer memory system:
 
-Add external tool servers via MCP (Model Context Protocol):
+- **MEMORY.md** — Persistent facts, user preferences, and long-term context. Updated when new durable information is learned.
+- **HISTORY.md** — Append-only event log. Used for searching past interactions and events.
 
-**stdio transport:**
-```json
-{
-  "tools": {
-    "mcpServers": {
-      "my-server": {
-        "command": "npx",
-        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path"],
-        "env": {}
-      }
-    }
-  }
-}
-```
+Both files live in the workspace and are read at the start of each session up to `memoryWindow` lines.
 
-**HTTP transport:**
-```json
-{
-  "tools": {
-    "mcpServers": {
-      "my-http-server": {
-        "url": "http://localhost:8080/mcp",
-        "headers": {}
-      }
-    }
-  }
-}
-```
+## Skills System
 
-## Skills = Extended Capabilities
+Skills are Markdown files in `workspace/skills/` that extend capabilities with domain-specific instructions (e.g., how to use a particular CLI tool or service).
 
-Skills are markdown instructions that teach you how to use external tools and services.
-They appear in your system prompt as `<skills>` XML. To activate a skill, read its SKILL.md file with `read_file`.
+- Available skills appear in the system prompt as `<skills>`
+- To use a skill, read the relevant `.md` file from `workspace/skills/` using the Read tool
+- Follow the skill's instructions — skills typically describe CLI commands to run via Bash
 
-**When a user asks "what can you do?" or "list your tools/capabilities":**
-- List both your built-in tools AND your available skills
-- Skills are capabilities too — they let you use CLI tools (like `gws`, `obsidian`) via the `exec` tool
-- Example: the `google-workspace` skill teaches you to run `gws` commands via `exec`
-
-**How skills work:**
-1. Check `<skills>` in your system prompt for available skills
-2. Use `read_file` to load the full SKILL.md content
-3. Follow the skill's instructions (usually involves running CLI commands via `exec`)
+**When asked "what can you do?" or "list your capabilities":**
+- List built-in Claude CLI tools AND available skills
+- Skills are capabilities — they teach use of external CLI tools and services
 
 ## Scheduled Reminders & Cron
 
-Before scheduling reminders, check available skills and follow skill guidance first.
-Use the built-in `cron` tool to create/list/remove jobs (do not call `companiocc cron` via `exec`).
-Get USER_ID and CHANNEL from the current session (e.g., `8281248569` and `telegram` from `telegram:8281248569`).
+Use cron scheduling for time-based reminders. Get USER_ID and CHANNEL from the current session context (e.g., `8281248569` and `telegram` from `telegram:8281248569`).
 
-**Do NOT just write reminders to MEMORY.md** — that won't trigger actual notifications.
+**Do NOT write reminders only to MEMORY.md** — that will not trigger notifications.
 
 ## Heartbeat Tasks
 
-`HEARTBEAT.md` is checked every 10 minutes (configurable). Use file tools to manage periodic tasks:
+`HEARTBEAT.md` is checked on every heartbeat tick (default every 10 minutes). Use file tools to manage periodic tasks:
 
-- **Add**: `edit_file` to append new tasks
-- **Remove**: `edit_file` to delete completed tasks
-- **Rewrite**: `write_file` to replace all tasks
+- **Add**: Edit `HEARTBEAT.md` to append a new task
+- **Remove**: Edit `HEARTBEAT.md` to delete a completed task
+- **Rewrite**: Write `HEARTBEAT.md` to replace all tasks
 
-When the user asks for a recurring/periodic task, update `HEARTBEAT.md` instead of creating a one-time cron reminder.
+When the user asks for a recurring/periodic background task, update `HEARTBEAT.md` rather than creating a one-time cron job.
 
 ## CLI Commands
 

@@ -143,15 +143,10 @@ class TestBuildCmd:
         idx = cmd.index("--append-system-prompt")
         assert cmd[idx + 1] == "Be helpful"
 
-    def test_bypass_permissions(self):
-        cli = ClaudeCLI(permission_mode="bypassPermissions")
+    def test_always_skips_permissions(self):
+        cli = ClaudeCLI()
         cmd = cli._build_cmd(system_prompt=None)
         assert "--dangerously-skip-permissions" in cmd
-
-    def test_default_permissions_no_flag(self):
-        cli = ClaudeCLI(permission_mode="default")
-        cmd = cli._build_cmd(system_prompt=None)
-        assert "--dangerously-skip-permissions" not in cmd
 
     def test_allowed_tools(self):
         cli = ClaudeCLI(allowed_tools=["Read", "Edit", "Bash"])

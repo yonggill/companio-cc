@@ -330,7 +330,7 @@ def gateway(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
 ):
-    """Start the companiocccc gateway."""
+    """Start the companiocc gateway."""
     from companiocc.bus import MessageBus
     from companiocc.channels.manager import ChannelManager
     from companiocc.config.paths import get_cron_dir
@@ -345,11 +345,23 @@ def gateway(
 
         logging.basicConfig(level=logging.DEBUG)
 
+    # Warn if running from home directory — Claude CLI would have access to everything under ~/
+    cwd = Path.cwd().resolve()
+    home = Path.home().resolve()
+    if cwd == home or cwd == home / ".":
+        console.print(
+            "[bold yellow]Warning:[/bold yellow] Running gateway from your home directory (~/).\n"
+            "  Claude CLI will use this as its working directory, giving it access to all files under ~/.\n"
+            "  Consider running from a more specific directory (e.g., your workspace)."
+        )
+        if not typer.confirm("  Continue anyway?", default=False):
+            raise typer.Exit(0)
+
     config = _load_runtime_config(config, workspace)
 
     verify_claude_cli()  # fails fast if claude not installed
 
-    console.print(f"{__logo__} Starting companiocccc gateway on port {port}...")
+    console.print(f"{__logo__} Starting companiocc gateway on port {port}...")
     sync_workspace_templates(config.workspace_path)
     bus = MessageBus()
 
@@ -358,7 +370,7 @@ def gateway(
         timeout=config.claude.timeout,
         max_concurrent=config.claude.max_concurrent,
         model=config.claude.model,
-        permission_mode=config.claude.permission_mode,
+
         allowed_tools=config.claude.allowed_tools,
     )
 
@@ -518,7 +530,7 @@ def agent(
         timeout=config.claude.timeout,
         max_concurrent=config.claude.max_concurrent,
         model=config.claude.model,
-        permission_mode=config.claude.permission_mode,
+
         allowed_tools=config.claude.allowed_tools,
     )
 
@@ -697,7 +709,7 @@ def channels_status():
 
 @app.command()
 def status():
-    """Show companiocccc status."""
+    """Show companiocc status."""
     import shutil
     import subprocess
 

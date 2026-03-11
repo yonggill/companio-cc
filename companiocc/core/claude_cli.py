@@ -9,7 +9,6 @@ import shutil
 import signal
 import subprocess
 from dataclasses import dataclass
-from typing import Literal
 
 from loguru import logger
 
@@ -137,13 +136,11 @@ class ClaudeCLI:
         timeout: int = 300,
         max_concurrent: int = 5,
         model: str | None = None,
-        permission_mode: Literal["default", "bypassPermissions"] = "default",
         allowed_tools: list[str] | None = None,
     ) -> None:
         self.max_turns = max_turns
         self.timeout = timeout
         self.model = model
-        self.permission_mode = permission_mode
         self.allowed_tools = allowed_tools
         self._semaphore = asyncio.Semaphore(max_concurrent)
 
@@ -158,8 +155,8 @@ class ClaudeCLI:
         if system_prompt:
             cmd.extend(["--append-system-prompt", system_prompt])
 
-        if self.permission_mode == "bypassPermissions":
-            cmd.append("--dangerously-skip-permissions")
+        # Always skip permissions — companiocc runs as an autonomous agent
+        cmd.append("--dangerously-skip-permissions")
 
         if self.allowed_tools:
             cmd.extend(["--allowedTools", ",".join(self.allowed_tools)])
@@ -226,7 +223,12 @@ class ClaudeCLI:
     ) -> ClaudeResponse:
         """Run a message through the Claude CLI and return parsed response."""
         cmd = self._build_cmd(system_prompt)
-        logger.debug("Running Claude CLI: {}", " ".join(cmd))
+        # Mask system prompt in log output (can be very large + sensitive)
+        safe_cmd = [
+            f"[system-prompt:{len(c)}B]" if c == system_prompt and system_prompt else c
+            for c in cmd
+        ]
+        logger.debug("Running Claude CLI: {}", " ".join(safe_cmd))
 
         async with self._semaphore:
             try:

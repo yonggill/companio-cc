@@ -78,9 +78,7 @@ def save_config(config: Config, config_path: Path | None = None) -> None:
 
 def _migrate_config(data: dict) -> dict:
     """Migrate old config formats to current."""
-    # Move tools.exec.restrictToWorkspace → tools.restrictToWorkspace
-    tools = data.get("tools", {})
-    exec_cfg = tools.get("exec", {})
-    if "restrictToWorkspace" in exec_cfg and "restrictToWorkspace" not in tools:
-        tools["restrictToWorkspace"] = exec_cfg.pop("restrictToWorkspace")
+    # Remove stale keys from pre-Claude-CLI architecture
+    for stale in ("tools", "providers"):
+        data.pop(stale, None)
     return data

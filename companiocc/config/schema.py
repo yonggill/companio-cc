@@ -1,7 +1,6 @@
 """Configuration schema using Pydantic."""
 
 from pathlib import Path
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
@@ -69,7 +68,6 @@ class ClaudeCLIConfig(Base):
     timeout: int = 300
     max_concurrent: int = 5
     model: str | None = None  # Claude CLI model override
-    permission_mode: Literal["default", "bypassPermissions"] = "default"
     allowed_tools: list[str] = Field(default_factory=list)
 
 

@@ -18,7 +18,6 @@ class TestConfigDefaults:
         assert config.claude.timeout == 300
         assert config.claude.max_concurrent == 5
         assert config.claude.model is None
-        assert config.claude.permission_mode == "default"
         assert config.claude.allowed_tools == []
 
     def test_telegram_config_defaults(self):
