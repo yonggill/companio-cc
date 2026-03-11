@@ -1,16 +1,11 @@
 """Context builder for assembling agent prompts."""
 
-import base64
-import mimetypes
 import platform
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 from companio.core.memory import MemoryStore
-from companio.core.skills import SkillsLoader
-from companio.helpers import detect_image_mime
 
 
 class ContextBuilder:
@@ -22,10 +17,9 @@ class ContextBuilder:
     def __init__(self, workspace: Path):
         self.workspace = workspace
         self.memory = MemoryStore(workspace)
-        self.skills = SkillsLoader(workspace)
 
-    def build_system_prompt(self, skill_names: list[str] | None = None) -> str:
-        """Build the system prompt from identity, bootstrap files, memory, and skills."""
+    def build_system_prompt(self) -> str:
+        """Build the system prompt from identity, bootstrap files, and memory."""
         parts = [self._get_identity()]
 
         bootstrap = self._load_bootstrap_files()
@@ -35,21 +29,6 @@ class ContextBuilder:
         memory = self.memory.get_memory_context()
         if memory:
             parts.append(f"# Memory\n\n{memory}")
-
-        always_skills = self.skills.get_always_skills()
-        if always_skills:
-            always_content = self.skills.load_skills_for_context(always_skills)
-            if always_content:
-                parts.append(f"# Active Skills\n\n{always_content}")
-
-        skills_summary = self.skills.build_skills_summary()
-        if skills_summary:
-            parts.append(f"""# Skills
-
-The following skills extend your capabilities. To use a skill, read its SKILL.md file using the read_file tool.
-Skills with available="false" need dependencies installed first - you can try installing them with apt/brew.
-
-{skills_summary}""")
 
         return "\n\n---\n\n".join(parts)
 
@@ -118,96 +97,25 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
 
         return "\n\n".join(parts) if parts else ""
 
-    def build_messages(
-        self,
-        history: list[dict[str, Any]],
-        current_message: str,
-        skill_names: list[str] | None = None,
-        media: list[str] | None = None,
-        channel: str | None = None,
-        chat_id: str | None = None,
-    ) -> list[dict[str, Any]]:
-        """Build the complete message list for an LLM call."""
-        runtime_ctx = self._build_runtime_context(channel, chat_id)
-        user_content = self._build_user_content(current_message, media)
-
-        # Merge runtime context and user content into a single user message
-        # to avoid consecutive same-role messages that some providers reject.
-        if isinstance(user_content, str):
-            merged = f"{runtime_ctx}\n\n{user_content}"
-        else:
-            merged = [{"type": "text", "text": runtime_ctx}] + user_content
-
-        messages = [
-            {"role": "system", "content": self.build_system_prompt(skill_names)},
-            *history,
-            {"role": "user", "content": merged},
-        ]
-        return self._strip_orphan_tool_results(messages)
-
     @staticmethod
-    def _strip_orphan_tool_results(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Remove tool result messages whose tool_call_id has no matching tool_use."""
-        valid_ids: set[str] = set()
-        for m in messages:
-            for tc in m.get("tool_calls") or []:
-                if isinstance(tc, dict) and tc.get("id"):
-                    valid_ids.add(tc["id"])
-        return [
-            m for m in messages
-            if m.get("role") != "tool" or m.get("tool_call_id") in valid_ids
-        ]
+    def format_history(messages: list[dict]) -> str:
+        """Format session messages as a text string for injection into Claude CLI prompt.
 
-    def _build_user_content(self, text: str, media: list[str] | None) -> str | list[dict[str, Any]]:
-        """Build user message content with optional base64-encoded images."""
-        if not media:
-            return text
+        Args:
+            messages: List of dicts with "role" and "content" keys.
 
-        images = []
-        for path in media:
-            p = Path(path)
-            if not p.is_file():
+        Returns:
+            Formatted string with each message on its own line prefixed by role.
+            Empty-content messages are skipped. Messages longer than 2000 chars
+            are truncated with "...(truncated)".
+        """
+        lines = []
+        for message in messages:
+            role = message.get("role", "")
+            content = message.get("content", "")
+            if not content:
                 continue
-            raw = p.read_bytes()
-            # Detect real MIME type from magic bytes; fallback to filename guess
-            mime = detect_image_mime(raw) or mimetypes.guess_type(path)[0]
-            if not mime or not mime.startswith("image/"):
-                continue
-            b64 = base64.b64encode(raw).decode()
-            images.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}})
-
-        if not images:
-            return text
-        return images + [{"type": "text", "text": text}]
-
-    def add_tool_result(
-        self,
-        messages: list[dict[str, Any]],
-        tool_call_id: str,
-        tool_name: str,
-        result: str,
-    ) -> list[dict[str, Any]]:
-        """Add a tool result to the message list."""
-        messages.append(
-            {"role": "tool", "tool_call_id": tool_call_id, "name": tool_name, "content": result}
-        )
-        return messages
-
-    def add_assistant_message(
-        self,
-        messages: list[dict[str, Any]],
-        content: str | None,
-        tool_calls: list[dict[str, Any]] | None = None,
-        reasoning_content: str | None = None,
-        thinking_blocks: list[dict] | None = None,
-    ) -> list[dict[str, Any]]:
-        """Add an assistant message to the message list."""
-        msg: dict[str, Any] = {"role": "assistant", "content": content}
-        if tool_calls:
-            msg["tool_calls"] = tool_calls
-        if reasoning_content is not None:
-            msg["reasoning_content"] = reasoning_content
-        if thinking_blocks:
-            msg["thinking_blocks"] = thinking_blocks
-        messages.append(msg)
-        return messages
+            if isinstance(content, str) and len(content) > 2000:
+                content = content[:2000] + "...(truncated)"
+            lines.append(f"[{role}] {content}")
+        return "\n".join(lines)
